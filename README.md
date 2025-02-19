@@ -6,6 +6,7 @@ ESP32 Controlled iRobot Roomba using iRobot® Create® 2 Open Interface
 
 - Control Roomba using ESP32 over WiFi with websocket
 - Retrieve sensor data from Roomba
+- Control Roomba using Web Interface
 
 ## Requirements
 
@@ -44,4 +45,4 @@ Upload the code to ESP32 using Arduino IDE
 
 ## Usage
 
-Connect to ESP32 using WebSocket client and send commands to control Roomba
+Open the Web Interface in your browser by opening the html file, enter the IP address of your ESP32 and click Connect

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Roomba Control Interface</title>
+    <style>
+        #joystickContainer {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+        }
+        .joystick {
+            width: 150px;
+            height: 150px;
+            border: 2px solid black;
+            border-radius: 50%;
+            position: relative;
+            touch-action: none;
+        }
+        .joystickHandle {
+            width: 50px;
+            height: 50px;
+            background-color: red;
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+    </style>
+</head>
+<body>
+    <h1>Roomba Control Interface</h1>
+    <h3>Current Mode: <span id="currentMode">Unknown</span></h3>
+    <button onclick="sendCommand('shutdown')">Shutdown</button>
+    <button onclick="sendCommand('wakeup')">Wakeup</button>
+    <button onclick="sendCommand('start')">start</button>
+    <button onclick="sendCommand('stop')">stop</button>
+
+    <br/><br/>
+
+    <button onclick="sendCommand('change_mode 1')">Safe mode</button>
+    <button onclick="sendCommand('change_mode 2')">Full mode</button>
+
+    <br/><br/>
+
+    <div>
+        <input type="text" id="ipAddress" placeholder="Enter ESP32 IP Address">
+        <button onclick="connectWebSocket()">Connect</button>
+        <button onclick="disconnectWebSocket()">Disconnect</button>
+    </div>
+
+    <br/><br/>
+
+    <div id="joystickContainer">
+        <div id="joystickLeft" class="joystick">
+            <div class="joystickHandle"></div>
+        </div>
+        <div id="joystickRight" class="joystick">
+            <div class="joystickHandle"></div>
+        </div>
+    </div>
+
+    <br/><br/>
+
+    <h2>Roomba Data</h2>
+    <pre id="roombaData"></pre>
+
+    <script>
+        var ws;
+
+        function connectWebSocket() {
+            var ipAddress = document.getElementById('ipAddress').value;
+            ws = new WebSocket('ws://' + ipAddress + ':81');
+
+            ws.onopen = function() {
+                console.log('WebSocket connection opened');
+            };
+
+            ws.onmessage = function(event) {
+                displayRoombaData(event.data);
+            };
+
+            ws.onclose = function() {
+                console.log('WebSocket connection closed');
+            };
+        }
+
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        function sendCommand(command) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(command);
+                console.log('Sent command: ' + command);
+            } else {
+                console.log('WebSocket is not connected');
+            }
+        }
+
+        function displayRoombaData(data) {
+            var roombaDataElement = document.getElementById('roombaData');
+            var jsonData = JSON.parse(data);
+            roombaDataElement.textContent = JSON.stringify(jsonData, null, 2);
+
+            var currentModeElement = document.getElementById('currentMode');
+            var mode = jsonData.oi_mode;
+            var modeText = "Unknown";
+            if (mode === 1) {
+                modeText = "Passive";
+            } else if (mode === 2) {
+                modeText = "Safe";
+            } else if (mode === 3) {
+                modeText = "Full";
+            }
+            currentModeElement.textContent = modeText;
+        }
+
+        // Joystick control logic
+        var joystickLeft = document.getElementById('joystickLeft');
+        var joystickRight = document.getElementById('joystickRight');
+        var joystickLeftHandle = joystickLeft.querySelector('.joystickHandle');
+        var joystickRightHandle = joystickRight.querySelector('.joystickHandle');
+
+        function handleJoystickMove(event, joystick, handle, callback, restrictX, restrictY) {
+            var rect = joystick.getBoundingClientRect();
+            var x = (event.touches ? event.touches[0].clientX : event.clientX) - rect.left;
+            var y = (event.touches ? event.touches[0].clientY : event.clientY) - rect.top;
+            var centerX = rect.width / 2;
+            var centerY = rect.height / 2;
+            var dx = x - centerX;
+            var dy = y - centerY;
+            var distance = Math.sqrt(dx * dx + dy * dy);
+            var maxDistance = rect.width / 2;
+
+            if (distance > maxDistance) {
+                dx = dx * maxDistance / distance;
+                dy = dy * maxDistance / distance;
+            }
+
+            if (restrictX) dx = 0;
+            if (restrictY) dy = 0;
+
+            handle.style.left = (centerX + dx) + 'px';
+            handle.style.top = (centerY + dy) + 'px';
+
+            callback(dx / maxDistance, dy / maxDistance);
+        }
+
+        function handleJoystickEnd(handle) {
+            handle.style.left = '50%';
+            handle.style.top = '50%';
+        }
+
+        function addJoystickListeners(joystick, handle, moveCallback, endCallback, restrictX, restrictY) {
+            joystick.addEventListener('touchmove', function(event) {
+                handleJoystickMove(event, joystick, handle, moveCallback, restrictX, restrictY);
+            });
+
+            joystick.addEventListener('touchend', function() {
+                handleJoystickEnd(handle);
+                endCallback();
+            });
+
+            joystick.addEventListener('mousedown', function(event) {
+                handleJoystickMove(event, joystick, handle, moveCallback, restrictX, restrictY);
+                document.addEventListener('mousemove', mouseMoveHandler);
+                document.addEventListener('mouseup', mouseUpHandler);
+            });
+
+            function mouseMoveHandler(event) {
+                handleJoystickMove(event, joystick, handle, moveCallback, restrictX, restrictY);
+            }
+
+            function mouseUpHandler() {
+                handleJoystickEnd(handle);
+                endCallback();
+                document.removeEventListener('mousemove', mouseMoveHandler);
+                document.removeEventListener('mouseup', mouseUpHandler);
+            }
+        }
+
+        addJoystickListeners(joystickLeft, joystickLeftHandle, function(x, y) {
+            var speed = Math.round(y * -500); // Convert to speed value
+            sendCommand('drive ' + speed + ' ' + speed);
+        }, function() {
+            sendCommand('drive 0 0');
+        }, true, false); // Restrict Y movement
+
+        addJoystickListeners(joystickRight, joystickRightHandle, function(x, y) {
+            var leftSpeed = Math.round(y * -500 + x * 500);
+            var rightSpeed = Math.round(y * -500 - x * 500);
+            sendCommand('drive ' + leftSpeed + ' ' + rightSpeed);
+        }, function() {
+            sendCommand('drive 0 0');
+        }, false, true); // Restrict X movement
+    </script>
+</body>
+</html>
