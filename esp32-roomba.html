@@ -26,6 +26,15 @@
             left: 50%;
             transform: translate(-50%, -50%);
         }
+        #joystickLeft {
+            width: 60px;
+            border-radius: 30px;
+        }
+        #joystickRight {
+            height: 60px;
+            border-radius: 30px;
+            margin-top: 50px;
+        }
     </style>
 </head>
 <body>
@@ -33,8 +42,7 @@
     <h3>Current Mode: <span id="currentMode">Unknown</span></h3>
     <button onclick="sendCommand('shutdown')">Shutdown</button>
     <button onclick="sendCommand('wakeup')">Wakeup</button>
-    <button onclick="sendCommand('start')">start</button>
-    <button onclick="sendCommand('stop')">stop</button>
+    <button onclick="sendCommand('start')">start/stop</button>
 
     <br/><br/>
 
@@ -67,6 +75,8 @@
 
     <script>
         var ws;
+        var leftJoystickState = { x: 0, y: 0 };
+        var rightJoystickState = { x: 0, y: 0 };
 
         function connectWebSocket() {
             var ipAddress = document.getElementById('ipAddress').value;
@@ -118,13 +128,13 @@
             currentModeElement.textContent = modeText;
         }
 
-        // Joystick control logic
-        var joystickLeft = document.getElementById('joystickLeft');
-        var joystickRight = document.getElementById('joystickRight');
-        var joystickLeftHandle = joystickLeft.querySelector('.joystickHandle');
-        var joystickRightHandle = joystickRight.querySelector('.joystickHandle');
+        function updateDriveCommand() {
+            var leftSpeed = Math.round(leftJoystickState.y * -500 + rightJoystickState.x * 500);
+            var rightSpeed = Math.round(leftJoystickState.y * -500 - rightJoystickState.x * 500);
+            sendCommand('drive ' + leftSpeed + ' ' + rightSpeed);
+        }
 
-        function handleJoystickMove(event, joystick, handle, callback, restrictX, restrictY) {
+        function handleJoystickMove(event, joystick, handle, callback, restrictX, restrictY, joystickState) {
             var rect = joystick.getBoundingClientRect();
             var x = (event.touches ? event.touches[0].clientX : event.clientX) - rect.left;
             var y = (event.touches ? event.touches[0].clientY : event.clientY) - rect.top;
@@ -146,56 +156,105 @@
             handle.style.left = (centerX + dx) + 'px';
             handle.style.top = (centerY + dy) + 'px';
 
+            joystickState.x = dx / maxDistance;
+            joystickState.y = dy / maxDistance;
+
             callback(dx / maxDistance, dy / maxDistance);
+            updateDriveCommand();
         }
 
-        function handleJoystickEnd(handle) {
+        function handleJoystickEnd(handle, joystickState) {
             handle.style.left = '50%';
             handle.style.top = '50%';
+            joystickState.x = 0;
+            joystickState.y = 0;
+            updateDriveCommand();
         }
 
-        function addJoystickListeners(joystick, handle, moveCallback, endCallback, restrictX, restrictY) {
-            joystick.addEventListener('touchmove', function(event) {
-                handleJoystickMove(event, joystick, handle, moveCallback, restrictX, restrictY);
+        function addJoystickListeners(joystick, handle, moveCallback, endCallback, restrictX, restrictY, joystickState) {
+            var activeTouchId = null;
+
+            joystick.addEventListener('touchstart', function(event) {
+                if (activeTouchId === null) {
+                    activeTouchId = event.changedTouches[0].identifier;
+                    handleJoystickMove(event.changedTouches[0], joystick, handle, moveCallback, restrictX, restrictY, joystickState);
+                    event.preventDefault();
+                }
             });
 
-            joystick.addEventListener('touchend', function() {
-                handleJoystickEnd(handle);
-                endCallback();
+            joystick.addEventListener('touchmove', function(event) {
+                for (var i = 0; i < event.changedTouches.length; i++) {
+                    if (event.changedTouches[i].identifier === activeTouchId) {
+                        handleJoystickMove(event.changedTouches[i], joystick, handle, moveCallback, restrictX, restrictY, joystickState);
+                        event.preventDefault();
+                        break;
+                    }
+                }
+            });
+
+            joystick.addEventListener('touchend', function(event) {
+                for (var i = 0; i < event.changedTouches.length; i++) {
+                    if (event.changedTouches[i].identifier === activeTouchId) {
+                        handleJoystickEnd(handle, joystickState);
+                        endCallback();
+                        activeTouchId = null;
+                        event.preventDefault();
+                        break;
+                    }
+                }
+            });
+
+            joystick.addEventListener('touchcancel', function(event) {
+                for (var i = 0; i < event.changedTouches.length; i++) {
+                    if (event.changedTouches[i].identifier === activeTouchId) {
+                        handleJoystickEnd(handle, joystickState);
+                        endCallback();
+                        activeTouchId = null;
+                        event.preventDefault();
+                        break;
+                    }
+                }
             });
 
             joystick.addEventListener('mousedown', function(event) {
-                handleJoystickMove(event, joystick, handle, moveCallback, restrictX, restrictY);
+                handleJoystickMove(event, joystick, handle, moveCallback, restrictX, restrictY, joystickState);
                 document.addEventListener('mousemove', mouseMoveHandler);
                 document.addEventListener('mouseup', mouseUpHandler);
+                event.preventDefault();
             });
 
             function mouseMoveHandler(event) {
-                handleJoystickMove(event, joystick, handle, moveCallback, restrictX, restrictY);
+                handleJoystickMove(event, joystick, handle, moveCallback, restrictX, restrictY, joystickState);
+                event.preventDefault();
             }
 
-            function mouseUpHandler() {
-                handleJoystickEnd(handle);
+            function mouseUpHandler(event) {
+                handleJoystickEnd(handle, joystickState);
                 endCallback();
                 document.removeEventListener('mousemove', mouseMoveHandler);
                 document.removeEventListener('mouseup', mouseUpHandler);
+                event.preventDefault();
             }
         }
 
-        addJoystickListeners(joystickLeft, joystickLeftHandle, function(x, y) {
-            var speed = Math.round(y * -500); // Convert to speed value
-            sendCommand('drive ' + speed + ' ' + speed);
-        }, function() {
-            sendCommand('drive 0 0');
-        }, true, false); // Restrict Y movement
+        document.addEventListener('DOMContentLoaded', function() {
+            var joystickLeft = document.getElementById('joystickLeft');
+            var joystickRight = document.getElementById('joystickRight');
+            var joystickLeftHandle = joystickLeft.querySelector('.joystickHandle');
+            var joystickRightHandle = joystickRight.querySelector('.joystickHandle');
 
-        addJoystickListeners(joystickRight, joystickRightHandle, function(x, y) {
-            var leftSpeed = Math.round(y * -500 + x * 500);
-            var rightSpeed = Math.round(y * -500 - x * 500);
-            sendCommand('drive ' + leftSpeed + ' ' + rightSpeed);
-        }, function() {
-            sendCommand('drive 0 0');
-        }, false, true); // Restrict X movement
+            addJoystickListeners(joystickLeft, joystickLeftHandle, function(x, y) {
+                leftJoystickState.y = y;
+            }, function() {
+                leftJoystickState.y = 0;
+            }, true, false, leftJoystickState); // Restrict Y movement
+
+            addJoystickListeners(joystickRight, joystickRightHandle, function(x, y) {
+                rightJoystickState.x = x;
+            }, function() {
+                rightJoystickState.x = 0;
+            }, false, true, rightJoystickState); // Restrict X movement
+        });
     </script>
 </body>
 </html>
