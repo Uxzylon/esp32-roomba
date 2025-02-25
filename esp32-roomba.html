@@ -80,6 +80,10 @@
         var port;
         var leftJoystickState = { x: 0, y: 0 };
         var rightJoystickState = { x: 0, y: 0 };
+        var lastGamepadDriveValues = { left: 0, right: 0 };
+        var gamepadActive = false;
+
+        var joystickLeft, joystickRight, joystickLeftHandle, joystickRightHandle;
 
         function connectWebSocket() {
             ipAddress = document.getElementById('ipAddress').value;
@@ -93,6 +97,10 @@
             ws.onopen = function() {
                 console.log('WebSocket connection opened');
                 document.getElementById('connectionStatus').textContent = 'Connected to ' + ipAddress + ':' + port;
+            };
+
+            ws.onmessage = function(event) {
+                displayRoombaData(event.data);
             };
 
             ws.onclose = function() {
@@ -177,6 +185,45 @@
             updateDriveCommand();
         }
 
+        function updateJoystickHandle(joystick, handle, x, y, restrictX, restrictY) {
+            var rect = joystick.getBoundingClientRect();
+            var centerX = rect.width / 2;
+            var centerY = rect.height / 2;
+            var maxDistance = rect.width / 2;
+
+            var dx = x * maxDistance;
+            var dy = y * maxDistance;
+
+            if (restrictX) dx = 0;
+            if (restrictY) dy = 0;
+
+            handle.style.left = (centerX + dx) + 'px';
+            handle.style.top = (centerY + dy) + 'px';
+        }
+
+        function updateGamepad() {
+            var gamepads = navigator.getGamepads();
+            if (gamepads[0]) {
+                var gp = gamepads[0];
+
+                if (gp.axes[1] !== lastGamepadDriveValues.left || gp.axes[2] !== lastGamepadDriveValues.right) {
+                    leftJoystickState.y = gp.axes[1]; // Left stick vertical axis
+                    rightJoystickState.x = gp.axes[2]; // Right stick horizontal axis
+                    lastGamepadDriveValues.left = leftJoystickState.y;
+                    lastGamepadDriveValues.right = rightJoystickState.x;
+                    updateDriveCommand();
+
+                    // Update the joystick handles visually
+                    updateJoystickHandle(joystickLeft, joystickLeftHandle, 0, leftJoystickState.y, true, false);
+                    updateJoystickHandle(joystickRight, joystickRightHandle, rightJoystickState.x, 0, false, true);
+                }
+                gamepadActive = true;
+            } else {
+                gamepadActive = false;
+            }
+            requestAnimationFrame(updateGamepad);
+        }
+
         function addJoystickListeners(joystick, handle, moveCallback, endCallback, restrictX, restrictY, joystickState) {
             var activeTouchId = null;
 
@@ -253,10 +300,10 @@
                 document.getElementById('port').value = savedPort; // Set saved port
             }
             
-            var joystickLeft = document.getElementById('joystickLeft');
-            var joystickRight = document.getElementById('joystickRight');
-            var joystickLeftHandle = joystickLeft.querySelector('.joystickHandle');
-            var joystickRightHandle = joystickRight.querySelector('.joystickHandle');
+            joystickLeft = document.getElementById('joystickLeft');
+            joystickRight = document.getElementById('joystickRight');
+            joystickLeftHandle = joystickLeft.querySelector('.joystickHandle');
+            joystickRightHandle = joystickRight.querySelector('.joystickHandle');
 
             addJoystickListeners(joystickLeft, joystickLeftHandle, function(x, y) {
                 leftJoystickState.y = y;
@@ -269,6 +316,20 @@
             }, function() {
                 rightJoystickState.x = 0;
             }, false, true, rightJoystickState); // Restrict X movement
+
+            window.addEventListener("gamepadconnected", function(e) {
+                console.log("Gamepad connected at index %d: %s. %d buttons, %d axes.",
+                    e.gamepad.index, e.gamepad.id,
+                    e.gamepad.buttons.length, e.gamepad.axes.length);
+                gamepadActive = true;
+                requestAnimationFrame(updateGamepad);
+            });
+
+            window.addEventListener("gamepaddisconnected", function(e) {
+                console.log("Gamepad disconnected from index %d: %s",
+                    e.gamepad.index, e.gamepad.id);
+                gamepadActive = false;
+            });
         });
     </script>
 </body>
