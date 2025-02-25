@@ -60,6 +60,16 @@
 
     <br/><br/>
 
+    <div>
+        <label for="gamepadMode">Gamepad Mode:</label>
+        <select id="gamepadMode">
+            <option value="1" selected>Mode 1: Triggers for forward/reverse, left joystick for left/right</option>
+            <option value="2">Mode 2: Left stick forward/backward, right stick left/right</option>
+        </select>
+    </div>
+
+    <br/><br/>
+
     <div id="joystickContainer">
         <div id="joystickLeft" class="joystick">
             <div class="joystickHandle"></div>
@@ -82,6 +92,8 @@
         var rightJoystickState = { x: 0, y: 0 };
         var lastGamepadDriveValues = { left: 0, right: 0 };
         var gamepadActive = false;
+        var gamepadMode = 1;
+        var triggersInitialized = { left: false, right: false };
 
         var joystickLeft, joystickRight, joystickLeftHandle, joystickRightHandle;
 
@@ -145,6 +157,14 @@
         function updateDriveCommand() {
             var leftSpeed = Math.round(leftJoystickState.y * -500 + rightJoystickState.x * 500);
             var rightSpeed = Math.round(leftJoystickState.y * -500 - rightJoystickState.x * 500);
+
+            // Normalize the speeds to ensure they stay within the range of -500 to 500
+            var maxSpeed = Math.max(Math.abs(leftSpeed), Math.abs(rightSpeed));
+            if (maxSpeed > 500) {
+                leftSpeed = (leftSpeed / maxSpeed) * 500;
+                rightSpeed = (rightSpeed / maxSpeed) * 500;
+            }
+
             sendCommand('drive_direct ' + leftSpeed + ' ' + rightSpeed);
         }
 
@@ -200,15 +220,33 @@
             handle.style.left = (centerX + dx) + 'px';
             handle.style.top = (centerY + dy) + 'px';
         }
-
+        
         function updateGamepad() {
             var gamepads = navigator.getGamepads();
             if (gamepads[0]) {
                 var gp = gamepads[0];
+                var leftSpeed = 0;
+                var rightSpeed = 0;
 
-                if (gp.axes[1] !== lastGamepadDriveValues.left || gp.axes[2] !== lastGamepadDriveValues.right) {
-                    leftJoystickState.y = gp.axes[1]; // Left stick vertical axis
-                    rightJoystickState.x = gp.axes[2]; // Right stick horizontal axis
+                if (gamepadMode === 1) {
+                    // Mode 1: Triggers for forward/reverse, left joystick for left/right
+                    triggersInitialized.left = triggersInitialized.left || gp.axes[4] !== 0;
+                    triggersInitialized.right = triggersInitialized.right || gp.axes[5] !== 0;
+
+                    var leftTriggerValue = triggersInitialized.left ? gp.axes[4] : -1;
+                    var rightTriggerValue = triggersInitialized.right ? gp.axes[5] : -1;
+
+                    leftSpeed = (leftTriggerValue - rightTriggerValue) * 0.5; // Left trigger - Right trigger
+                    rightSpeed = gp.axes[0]; // Left stick horizontal axis
+                } else {
+                    // Mode 2: Left stick forward/backward, right stick left/right
+                    leftSpeed = gp.axes[1]; // Left stick vertical axis
+                    rightSpeed = gp.axes[2]; // Right stick horizontal axis
+                }
+
+                if (leftSpeed !== lastGamepadDriveValues.left || rightSpeed !== lastGamepadDriveValues.right) {
+                    leftJoystickState.y = leftSpeed;
+                    rightJoystickState.x = rightSpeed;
                     lastGamepadDriveValues.left = leftJoystickState.y;
                     lastGamepadDriveValues.right = rightJoystickState.x;
                     updateDriveCommand();
@@ -316,6 +354,10 @@
             }, function() {
                 rightJoystickState.x = 0;
             }, false, true, rightJoystickState); // Restrict X movement
+
+            document.getElementById('gamepadMode').addEventListener('change', function(event) {
+                gamepadMode = parseInt(event.target.value, 10);
+            });
 
             window.addEventListener("gamepadconnected", function(e) {
                 console.log("Gamepad connected at index %d: %s. %d buttons, %d axes.",
