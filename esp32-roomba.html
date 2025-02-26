@@ -1,89 +1,255 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Roomba Control Interface</title>
     <style>
-        #joystickContainer {
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: Arial, sans-serif;
+            background-color: #000;
+            color: #fff;
+        }
+        .container {
             display: flex;
-            justify-content: space-around;
-            margin-top: 20px;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+            position: relative;
+        }
+        .background-image {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: 50% 20%;
+            z-index: 1;
+        }
+        .background-placeholder {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 1.5em;
+            text-align: center;
+            z-index: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+        .overlay {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+            position: relative;
+            z-index: 2;
+        }
+        .footer {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2px;
+            background-color: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            z-index: 1;
+            font-size: 0.8em;
+        }
+        .footer h3, .footer div, .footer button, .footer select {
+            margin: 1px;
+        }
+        .footer .row {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+        }
+        .footer .row div, .footer .row button, .footer .row select {
+            margin: 1px;
+        }
+        .joystick-container {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            margin: auto 0 3vh 0;
         }
         .joystick {
-            width: 150px;
-            height: 150px;
-            border: 2px solid black;
+            width: 120px;
+            height: 120px;
+            border: 2px solid #fff;
             border-radius: 50%;
             position: relative;
             touch-action: none;
+            margin: 0 10%;
         }
-        .joystickHandle {
-            width: 50px;
-            height: 50px;
-            background-color: red;
+        .joystick-handle {
+            width: 40px;
+            height: 40px;
+            background-color: #007bff;
             border-radius: 50%;
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
         }
-        #joystickLeft {
+        .joystick-vertical {
             width: 60px;
-            border-radius: 30px;
+            border-radius: 40px;
         }
-        #joystickRight {
+        .joystick-horizontal {
             height: 60px;
-            border-radius: 30px;
-            margin-top: 50px;
+            border-radius: 40px;
+            margin-top: 20px;
+        }
+        .info-panel {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 0px 4px 0px 4px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            font-size: calc(0.4em + 0.3vw);
+            max-width: 200px;
+        }
+        .round-button {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: #007bff;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1em;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        .round-buttons-left, .round-buttons-right {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .round-buttons-left {
+            left: 20px;
+        }
+        .round-buttons-right {
+            right: 20px;
+        }
+        .toggle-button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            padding: 5px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        #ipAddress {
+            width: 85px;
+        }
+        #port {
+            width: 30px;
+        }
+        .highlighted {
+            background-color: #007bff;
+            color: white;
+        }
+        .non-highlighted {
+            background-color: #fff;
+            color: #000;
+        }
+        .connected {
+            border: 2px solid green;
+        }
+        .disconnected {
+            border: 2px solid red;
+        }
+        @media (orientation: portrait) {
+            .container {
+                flex-direction: column;
+            }
+            .joystick-container {
+                flex-direction: row;
+                justify-content: space-around;
+                width: 70%;
+            }
+            .info-panel {
+                max-width: 40%;
+                font-size: calc(0.5em + 0.3vw);
+            }
         }
     </style>
 </head>
 <body>
-    <h1>Roomba Control Interface</h1>
-    <h3><span id="connectionStatus">Not connected</span></h3>
-
-    <div>
-        <input type="text" id="ipAddress" placeholder="Enter ESP32 IP Address"></input>
-        <input type="text" id="port" placeholder="81"></input>
-        <button onclick="connectWebSocket()">Connect</button>
-        <button onclick="disconnectWebSocket()">Disconnect</button>
-    </div>
-
-    <h3>Current Mode: <span id="currentMode">Unknown</span></h3>
-    <button onclick="sendCommand('power')">Shutdown</button>
-    <button onclick="sendCommand('wakeup')">Wakeup</button>
-    <button onclick="sendCommand('start')">start/stop</button>
-
-    <br/><br/>
-
-    <button onclick="sendCommand('safe')">Safe mode</button>
-    <button onclick="sendCommand('full')">Full mode</button>
-
-    <br/><br/>
-
-    <div>
-        <label for="gamepadMode">Gamepad Mode:</label>
-        <select id="gamepadMode">
-            <option value="1" selected>Mode 1: Triggers for forward/reverse, left joystick for left/right</option>
-            <option value="2">Mode 2: Left stick forward/backward, right stick left/right</option>
-        </select>
-    </div>
-
-    <br/><br/>
-
-    <div id="joystickContainer">
-        <div id="joystickLeft" class="joystick">
-            <div class="joystickHandle"></div>
+    <div class="container">
+        <img class="background-image" id="backgroundImage">
+        <div class="background-placeholder">No video</div>
+        <div class="overlay">
+            <button class="toggle-button" onclick="toggleImageMode()">🔲</button>
+            <div class="info-panel" id="roombaDataContainer">
+                <pre id="roombaData"></pre>
+            </div>
+            <div class="joystick-container" id="joystickContainer">
+                <div id="joystickLeft" class="joystick joystick-vertical">
+                    <div class="joystick-handle"></div>
+                </div>
+                <div id="joystickRight" class="joystick joystick-horizontal">
+                    <div class="joystick-handle"></div>
+                </div>
+            </div>
+            <div class="footer" id="controlsContainer">
+                <div class="row">
+                    <div>
+                        <input type="text" id="ipAddress" placeholder="Enter ESP32 IP Address" class="disconnected">
+                        <input type="text" id="port" placeholder="81" class="disconnected">
+                        <button onclick="connectWebSocket()">Connect</button>
+                        <button onclick="disconnectWebSocket()">Disconnect</button>
+                    </div>
+                </div>
+                <div class="row">
+                    <button onclick="sendCommand('wakeup')">Wakeup</button>
+                    <button onclick="sendCommand('power')">Shutdown</button>
+                    <button id="passiveButton" class="non-highlighted" onclick="sendCommand('start')">Passive</button>
+                    <button id="safeButton" class="non-highlighted" onclick="sendCommand('safe')">Safe mode</button>
+                    <button id="fullButton" class="non-highlighted" onclick="sendCommand('full')">Full mode</button>
+                </div>
+            </div>
+            <div class="round-buttons-left">
+                <div class="round-button">A</div>
+                <div class="round-button">B</div>
+                <div class="round-button">C</div>
+            </div>
+            <div class="round-buttons-right">
+                <div class="round-button">D</div>
+                <div class="round-button">E</div>
+                <div class="round-button">F</div>
+                <div class="round-button">G</div>
+            </div>
         </div>
-        <div id="joystickRight" class="joystick">
-            <div class="joystickHandle"></div>
-        </div>
     </div>
-
-    <br/><br/>
-
-    <h2>Roomba Data</h2>
-    <pre id="roombaData"></pre>
-
     <script>
         var ws;
         var ipAddress;
@@ -108,7 +274,10 @@
 
             ws.onopen = function() {
                 console.log('WebSocket connection opened');
-                document.getElementById('connectionStatus').textContent = 'Connected to ' + ipAddress + ':' + port;
+                document.getElementById('ipAddress').classList.remove('disconnected');
+                document.getElementById('ipAddress').classList.add('connected');
+                document.getElementById('port').classList.remove('disconnected');
+                document.getElementById('port').classList.add('connected');
             };
 
             ws.onmessage = function(event) {
@@ -117,13 +286,18 @@
 
             ws.onclose = function() {
                 console.log('WebSocket connection closed');
-                document.getElementById('connectionStatus').textContent = 'Not connected';
+                document.getElementById('ipAddress').classList.remove('connected');
+                document.getElementById('ipAddress').classList.add('disconnected');
+                document.getElementById('port').classList.remove('connected');
+                document.getElementById('port').classList.add('disconnected');
             };
         }
 
         function disconnectWebSocket() {
             if (ws) {
                 ws.close();
+                document.getElementById('ipAddress').classList.remove('connected');
+                document.getElementById('ipAddress').classList.add('disconnected');
             }
         }
 
@@ -138,20 +312,38 @@
 
         function displayRoombaData(data) {
             var roombaDataElement = document.getElementById('roombaData');
+            
             var jsonData = JSON.parse(data);
-            roombaDataElement.textContent = JSON.stringify(jsonData, null, 2);
+            var text = JSON.stringify(jsonData, null, 2);
+            text = text.substring(1, text.length - 1);
+            text = text.replace(/  /g, '');
+            text = text.substring(text.indexOf('\n') + 1);
+            roombaDataElement.textContent = text;
 
-            var currentModeElement = document.getElementById('currentMode');
             var mode = jsonData.oi_mode;
-            var modeText = "Unknown";
+            var passiveButton = document.getElementById('passiveButton');
+            var safeButton = document.getElementById('safeButton');
+            var fullButton = document.getElementById('fullButton');
+
+            // Reset all buttons to non-highlighted
+            passiveButton.classList.remove('highlighted');
+            passiveButton.classList.add('non-highlighted');
+            safeButton.classList.remove('highlighted');
+            safeButton.classList.add('non-highlighted');
+            fullButton.classList.remove('highlighted');
+            fullButton.classList.add('non-highlighted');
+
+            // Highlight the corresponding button based on the mode
             if (mode === 1) {
-                modeText = "Passive";
+                passiveButton.classList.remove('non-highlighted');
+                passiveButton.classList.add('highlighted');
             } else if (mode === 2) {
-                modeText = "Safe";
+                safeButton.classList.remove('non-highlighted');
+                safeButton.classList.add('highlighted');
             } else if (mode === 3) {
-                modeText = "Full";
+                fullButton.classList.remove('non-highlighted');
+                fullButton.classList.add('highlighted');
             }
-            currentModeElement.textContent = modeText;
         }
 
         function updateDriveCommand() {
@@ -177,15 +369,18 @@
             var dx = x - centerX;
             var dy = y - centerY;
             var distance = Math.sqrt(dx * dx + dy * dy);
-            var maxDistance = rect.width / 2;
+            var maxDistance = restrictX ? rect.width / 2 : rect.height / 2;
 
             if (distance > maxDistance) {
                 dx = dx * maxDistance / distance;
                 dy = dy * maxDistance / distance;
             }
 
-            if (restrictX) dx = 0;
-            if (restrictY) dy = 0;
+            if (restrictX) dx = Math.min(Math.max(dx, -maxDistance), maxDistance);
+            if (restrictY) dy = Math.min(Math.max(dy, -maxDistance), maxDistance);
+
+            if (restrictX) dy = 0; // Ensure no vertical movement for horizontal joystick
+            if (restrictY) dx = 0; // Ensure no horizontal movement for vertical joystick
 
             handle.style.left = (centerX + dx) + 'px';
             handle.style.top = (centerY + dy) + 'px';
@@ -340,24 +535,20 @@
             
             joystickLeft = document.getElementById('joystickLeft');
             joystickRight = document.getElementById('joystickRight');
-            joystickLeftHandle = joystickLeft.querySelector('.joystickHandle');
-            joystickRightHandle = joystickRight.querySelector('.joystickHandle');
+            joystickLeftHandle = joystickLeft.querySelector('.joystick-handle');
+            joystickRightHandle = joystickRight.querySelector('.joystick-handle');
 
             addJoystickListeners(joystickLeft, joystickLeftHandle, function(x, y) {
                 leftJoystickState.y = y;
             }, function() {
                 leftJoystickState.y = 0;
-            }, true, false, leftJoystickState); // Restrict Y movement
+            }, false, true, leftJoystickState); // Restrict X movement
 
             addJoystickListeners(joystickRight, joystickRightHandle, function(x, y) {
                 rightJoystickState.x = x;
             }, function() {
                 rightJoystickState.x = 0;
-            }, false, true, rightJoystickState); // Restrict X movement
-
-            document.getElementById('gamepadMode').addEventListener('change', function(event) {
-                gamepadMode = parseInt(event.target.value, 10);
-            });
+            }, true, false, rightJoystickState); // Restrict Y movement
 
             window.addEventListener("gamepadconnected", function(e) {
                 console.log("Gamepad connected at index %d: %s. %d buttons, %d axes.",
@@ -372,7 +563,19 @@
                     e.gamepad.index, e.gamepad.id);
                 gamepadActive = false;
             });
+
+            const backgroundImage = document.getElementById('backgroundImage');
+            backgroundImage.style.objectFit = 'contain';
         });
+
+        function toggleImageMode() {
+            const backgroundImage = document.getElementById('backgroundImage');
+            if (backgroundImage.style.objectFit === 'contain') {
+                backgroundImage.style.objectFit = 'cover';
+            } else {
+                backgroundImage.style.objectFit = 'contain';
+            }
+        }
     </script>
 </body>
 </html>
