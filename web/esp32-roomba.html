@@ -17,10 +17,10 @@
                 <pre id="roombaData"></pre>
             </div>
             <div class="joystick-container" id="joystickContainer">
-                <div id="joystickLeft" class="joystick joystick-vertical">
+                <div id="joystickLeft" class="joystick joystick-vertical disabled">
                     <div class="joystick-handle"></div>
                 </div>
-                <div id="joystickRight" class="joystick joystick-horizontal">
+                <div id="joystickRight" class="joystick joystick-horizontal disabled">
                     <div class="joystick-handle"></div>
                 </div>
             </div>
@@ -29,8 +29,8 @@
                     <div>
                         <input type="text" id="ipAddress" placeholder="Enter ESP32 IP Address" class="disconnected">
                         <input type="text" id="port" placeholder="81" class="disconnected">
-                        <button onclick="connectWebSocket()">Connect</button>
-                        <button onclick="disconnectWebSocket()">Disconnect</button>
+                        <button id="connectButton" onclick="connectWebSocket()">Connect</button>
+                        <button id="disconnectButton" disabled onclick="disconnectWebSocket()">Disconnect</button>
                     </div>
                 </div>
                 <div class="row">
@@ -39,15 +39,15 @@
                 </div>
             </div>
             <div class="round-buttons-left">
-                <div class="round-button">A</div>
-                <div class="round-button">B</div>
-                <div class="round-button">C</div>
+                <div id="aButton" class="round-button disabled">A</div>
+                <div id="bButton" class="round-button disabled">B</div>
+                <div id="cButton" class="round-button disabled">C</div>
             </div>
             <div class="round-buttons-right">
-                <div class="round-button">D</div>
-                <div class="round-button">E</div>
-                <div class="round-button">F</div>
-                <div class="round-button">G</div>
+                <div id="dButton" class="round-button disabled">D</div>
+                <div id="eButton" class="round-button disabled">E</div>
+                <div id="fButton" class="round-button disabled">F</div>
+                <div id="gButton" class="round-button disabled">G</div>
             </div>
         </div>
     </div>

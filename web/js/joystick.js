@@ -144,3 +144,13 @@ export function updateDriveCommand() {
 
     sendCommand('drive_direct ' + leftSpeed + ' ' + rightSpeed);
 }
+
+export function enableJoysticks(enabled) {
+    if (enabled) {
+        joystickLeft.classList.remove('disabled');
+        joystickRight.classList.remove('disabled');
+    } else {
+        joystickLeft.classList.add('disabled');
+        joystickRight.classList.add('disabled');
+    }
+}

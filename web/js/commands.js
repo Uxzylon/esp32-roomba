@@ -1,5 +1,5 @@
-import { sendCommand, clearRoombaData } from './websocket.js';
-import { disableButton, enableButton } from './utils.js';
+import { sendCommand } from './websocket.js';
+import { afterRoombaShutdown } from './main.js';
 
 export function startRoomba() {
     sendCommand('wakeup');
@@ -14,8 +14,6 @@ export function shutdownRoomba() {
         sendCommand('power');
     }, 500);
     setTimeout(() => {
-        clearRoombaData();
-        enableButton('startButton');
-        disableButton('shutdownButton');
+        afterRoombaShutdown();
     }, 1000);
 }

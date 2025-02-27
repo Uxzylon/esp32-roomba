@@ -1,8 +1,10 @@
 
-import { disableButton, enableButton } from "./utils.js";
+import { afterConnect, afterDisconnect, afterRoombaTurnedOn } from "./main.js";
 export let ws;
 export let ipAddress;
 export let port;
+
+const roombaDataElement = document.getElementById('roombaData');
 
 export function connectWebSocket() {
     ipAddress = document.getElementById('ipAddress').value;
@@ -15,15 +17,7 @@ export function connectWebSocket() {
 
     ws.onopen = function() {
         console.log('WebSocket connection opened');
-        document.getElementById('ipAddress').classList.remove('disconnected');
-        document.getElementById('ipAddress').classList.add('connected');
-        document.getElementById('port').classList.remove('disconnected');
-        document.getElementById('port').classList.add('connected');
-        
-        let startButton = document.getElementById('startButton');
-        let shutdownButton = document.getElementById('shutdownButton');
-        startButton.disabled = false;
-        shutdownButton.disabled = true
+        afterConnect();
     };
 
     ws.onmessage = function(event) {
@@ -32,28 +26,17 @@ export function connectWebSocket() {
 
     ws.onclose = function() {
         console.log('WebSocket connection closed');
-        document.getElementById('ipAddress').classList.remove('connected');
-        document.getElementById('ipAddress').classList.add('disconnected');
-        document.getElementById('port').classList.remove('connected');
-        document.getElementById('port').classList.add('disconnected');
-        
-        disableButton('startButton');
-        disableButton('shutdownButton');
-
-        clearRoombaData();
+        afterDisconnect();
     };
 }
 
 export function clearRoombaData() {
-    let roombaDataElement = document.getElementById('roombaData');
     roombaDataElement.textContent = '';
 }
 
 export function disconnectWebSocket() {
     if (ws) {
         ws.close();
-        document.getElementById('ipAddress').classList.remove('connected');
-        document.getElementById('ipAddress').classList.add('disconnected');
     }
 }
 
@@ -64,8 +47,6 @@ export function sendCommand(command) {
 }
 
 function displayRoombaData(data) {
-    let roombaDataElement = document.getElementById('roombaData');
-    
     let jsonData = JSON.parse(data);
     let text = JSON.stringify(jsonData, null, 2);
     text = text.substring(1, text.length - 1);
@@ -74,10 +55,6 @@ function displayRoombaData(data) {
     roombaDataElement.textContent = text;
 
     if (text) {
-        disableButton('startButton');
-        enableButton('shutdownButton');
-    } else {
-        enableButton('startButton');
-        disableButton('shutdownButton');
+        afterRoombaTurnedOn();
     }
 }
