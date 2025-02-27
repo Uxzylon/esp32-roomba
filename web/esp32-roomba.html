@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roomba Control Interface</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <img src="background.jpeg" class="background-image" id="backgroundImage">
+        <div class="background-placeholder">No video</div>
+        <div class="overlay">
+            <button class="toggle-button" onclick="toggleImageMode()">🔲</button>
+            <div class="info-panel" id="roombaDataContainer">
+                <pre id="roombaData"></pre>
+            </div>
+            <div class="joystick-container" id="joystickContainer">
+                <div id="joystickLeft" class="joystick joystick-vertical">
+                    <div class="joystick-handle"></div>
+                </div>
+                <div id="joystickRight" class="joystick joystick-horizontal">
+                    <div class="joystick-handle"></div>
+                </div>
+            </div>
+            <div class="footer" id="controlsContainer">
+                <div class="row">
+                    <div>
+                        <input type="text" id="ipAddress" placeholder="Enter ESP32 IP Address" class="disconnected">
+                        <input type="text" id="port" placeholder="81" class="disconnected">
+                        <button onclick="connectWebSocket()">Connect</button>
+                        <button onclick="disconnectWebSocket()">Disconnect</button>
+                    </div>
+                </div>
+                <div class="row">
+                    <button id="startButton" disabled onclick="startRoomba()">Wakeup</button>
+                    <button id="shutdownButton" disabled onclick="shutdownRoomba()">Shutdown</button>
+                </div>
+            </div>
+            <div class="round-buttons-left">
+                <div class="round-button">A</div>
+                <div class="round-button">B</div>
+                <div class="round-button">C</div>
+            </div>
+            <div class="round-buttons-right">
+                <div class="round-button">D</div>
+                <div class="round-button">E</div>
+                <div class="round-button">F</div>
+                <div class="round-button">G</div>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

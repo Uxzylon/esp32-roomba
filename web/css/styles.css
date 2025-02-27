@@ -1,0 +1,224 @@
+body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    font-family: Arial, sans-serif;
+    background-color: #000;
+    color: #fff;
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    position: relative;
+}
+
+.background-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: 50% 20%;
+    z-index: 1;
+}
+
+.background-placeholder {
+    position: absolute;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff;
+    font-size: 1.5em;
+    text-align: center;
+    z-index: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+.overlay {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    position: relative;
+    z-index: 2;
+}
+
+.footer {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    border-top: 2px solid rgba(255, 255, 255, 0.5);
+    background-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    z-index: 1;
+    font-size: 0.8em;
+}
+
+.footer h3, .footer div, .footer button, .footer select {
+    margin: 1px;
+}
+
+.footer .row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+}
+
+.footer .row div, .footer .row button, .footer .row select {
+    margin: 1px;
+}
+
+.joystick-container {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    margin: auto 0 3vh 0;
+}
+
+.joystick {
+    width: 120px;
+    height: 120px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    position: relative;
+    touch-action: none;
+    margin: 0 10%;
+}
+
+.joystick-handle {
+    width: 40px;
+    height: 40px;
+    background-color: #007bff;
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.joystick-vertical {
+    width: 60px;
+    border-radius: 40px;
+}
+
+.joystick-horizontal {
+    height: 60px;
+    border-radius: 40px;
+    margin-top: 20px;
+}
+
+.info-panel {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    background-color: rgba(255, 255, 255, 0.1);
+    padding: 0px 4px 0px 4px;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    font-size: calc(0.4em + 0.3vw);
+    max-width: 200px;
+}
+
+.round-button {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background-color: #007bff;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1em;
+    cursor: pointer;
+    margin: 10px 0;
+}
+
+.round-buttons-left, .round-buttons-right {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.round-buttons-left {
+    left: 20px;
+}
+
+.round-buttons-right {
+    right: 20px;
+}
+
+.toggle-button {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    padding: 5px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1em;
+}
+
+#ipAddress {
+    width: 85px;
+}
+
+#port {
+    width: 30px;
+}
+
+.highlighted {
+    background-color: #007bff;
+    color: white;
+}
+
+.non-highlighted {
+    background-color: #fff;
+    color: #000;
+}
+
+.connected {
+    border: 2px solid green;
+}
+
+.disconnected {
+    border: 2px solid red;
+}
+
+@media (orientation: portrait) {
+    .container {
+        flex-direction: column;
+    }
+    
+    .joystick-container {
+        flex-direction: row;
+        justify-content: space-around;
+        width: 70%;
+    }
+    
+    .info-panel {
+        max-width: 40%;
+        font-size: calc(0.5em + 0.3vw);
+    }
+}
