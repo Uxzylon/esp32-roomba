@@ -1,3 +1,5 @@
+import { CommandCode, sendCommand } from "./commands.js";
+
 export let leftJoystickState = { x: 0, y: 0 };
 export let rightJoystickState = { x: 0, y: 0 };
 export let joystickLeft, joystickRight, joystickLeftHandle, joystickRightHandle;
@@ -132,8 +134,8 @@ export function setJoystickElements(left, right, leftHandle, rightHandle) {
 }
 
 export function updateDriveCommand() {
-    let leftSpeed = Math.round(leftJoystickState.y * -500 + rightJoystickState.x * 500);
-    let rightSpeed = Math.round(leftJoystickState.y * -500 - rightJoystickState.x * 500);
+    let leftSpeed = Math.round(leftJoystickState.y * -500 - rightJoystickState.x * 500);
+    let rightSpeed = Math.round(leftJoystickState.y * -500 + rightJoystickState.x * 500);
 
     // Normalize the speeds to ensure they stay within the range of -500 to 500
     let maxSpeed = Math.max(Math.abs(leftSpeed), Math.abs(rightSpeed));
@@ -142,7 +144,7 @@ export function updateDriveCommand() {
         rightSpeed = (rightSpeed / maxSpeed) * 500;
     }
 
-    sendCommand('drive_direct ' + leftSpeed + ' ' + rightSpeed);
+    sendCommand(CommandCode.DRIVE_DIRECT, leftSpeed, rightSpeed);
 }
 
 export function enableJoysticks(enabled) {

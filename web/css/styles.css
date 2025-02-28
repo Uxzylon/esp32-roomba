@@ -32,7 +32,7 @@ body, html {
 
 .background-placeholder {
     position: absolute;
-    top: 40%;
+    top: 30%;
     left: 50%;
     transform: translate(-50%, -50%);
     color: #fff;
@@ -129,16 +129,23 @@ body, html {
     opacity: 0.5;
 }
 
-.info-panel {
+.info-panel-container {
+    display: flex;
+    align-items: top;
     position: absolute;
     top: 5px;
     left: 5px;
+}
+
+.info-panel {
     background-color: rgba(255, 255, 255, 0.1);
     padding: 0px 4px 0px 4px;
     border-radius: 5px;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
     font-size: calc(0.4em + 0.3vw);
-    max-width: 200px;
+    max-width: 20vw;
+    display: flex;
+    align-items: center;
 }
 
 .round-button {
@@ -153,6 +160,10 @@ body, html {
     font-size: 1em;
     cursor: pointer;
     margin: 10px 0;
+}
+
+.pause-button {
+    margin-left: 2px;
 }
 
 .round-buttons-left, .round-buttons-right {
@@ -223,7 +234,7 @@ body, html {
     }
 
     .info-panel {
-        max-width: 40%;
+        max-width: 100%;
         font-size: calc(0.5em + 0.3vw);
     }
 }

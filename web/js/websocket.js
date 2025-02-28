@@ -40,9 +40,10 @@ export function disconnectWebSocket() {
     }
 }
 
-export function sendCommand(command) {
+export function sendWSCommand(command) {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(command);
+        console.log('Sent command: ' + command);
     }
 }
 
@@ -52,9 +53,8 @@ function displayRoombaData(data) {
     text = text.substring(1, text.length - 1);
     text = text.replace(/  /g, '');
     text = text.substring(text.indexOf('\n') + 1);
-    roombaDataElement.textContent = text;
-
-    if (text) {
+    if (roombaDataElement.textContent === '' && text) {
         afterRoombaTurnedOn();
     }
+    roombaDataElement.textContent = text;
 }

@@ -1,7 +1,11 @@
-import { connectWebSocket, disconnectWebSocket, sendCommand, clearRoombaData } from './websocket.js';
+import { connectWebSocket, disconnectWebSocket, clearRoombaData } from './websocket.js';
 import { leftJoystickState, rightJoystickState, addJoystickListeners, setJoystickElements, enableJoysticks } from './joystick.js';
 import { updateGamepad, setGamepadActive } from './gamepad.js';
-import { startRoomba, shutdownRoomba } from './commands.js';
+import { sendCommand, startRoomba, shutdownRoomba, stream, defaultStreamPackets, CommandCode } from './commands.js';
+
+export const state = {
+    paused: false
+};
 
 document.addEventListener('DOMContentLoaded', function() {
     let savedIpAddress = localStorage.getItem('ipAddress');
@@ -54,18 +58,19 @@ const connectButton = document.getElementById('connectButton');
 const disconnectButton = document.getElementById('disconnectButton');
 const startButton = document.getElementById('startButton');
 const shutdownButton = document.getElementById('shutdownButton');
+const pauseButton = document.getElementById('pauseButton');
 
 const ipAddressInput = document.getElementById('ipAddress');
 const portInput = document.getElementById('port');
 
 const buttons = [
     document.getElementById('aButton'),
-    document.getElementById('bButton'),
-    document.getElementById('cButton'),
-    document.getElementById('dButton'),
-    document.getElementById('eButton'),
-    document.getElementById('fButton'),
-    document.getElementById('gButton')
+    // document.getElementById('bButton'),
+    // document.getElementById('cButton'),
+    // document.getElementById('dButton'),
+    // document.getElementById('eButton'),
+    // document.getElementById('fButton'),
+    // document.getElementById('gButton')
 ];
 
 export function afterConnect() {
@@ -99,15 +104,22 @@ export function afterDisconnect() {
 export function afterRoombaTurnedOn() {
     startButton.disabled = true;
     shutdownButton.disabled = false;
+    pauseButton.classList.remove('disabled');
 
     enableJoysticks(true);
     buttons.forEach(button => button.classList.remove('disabled'));
+
+    setTimeout(() => {
+        stream(...defaultStreamPackets);
+    }
+    , 1000);
 }
 
 export function afterRoombaShutdown() {
     clearRoombaData();
     startButton.disabled = false;
     shutdownButton.disabled = true;
+    pauseButton.classList.add('disabled');
 
     enableJoysticks(false);
     buttons.forEach(button => button.classList.add('disabled'));
@@ -122,6 +134,20 @@ function toggleImageMode() {
     }
 }
 
+function toggleRoombaDataPause() {
+    if (state.paused) {
+        pauseButton.innerHTML = '⏸';
+        // sendCommand('pause_resume_stream 1');
+        sendCommand(CommandCode.PAUSE_RESUME_STREAM, 1);
+        state.paused = false;
+    } else {
+        pauseButton.innerHTML = '▶️';
+        // sendCommand('pause_resume_stream 0');
+        sendCommand(CommandCode.PAUSE_RESUME_STREAM, 0);
+        state.paused = true;
+    }
+}
+
 // Attach functions to the window object to make them globally accessible
 window.connectWebSocket = connectWebSocket;
 window.disconnectWebSocket = disconnectWebSocket;
@@ -129,3 +155,5 @@ window.sendCommand = sendCommand;
 window.toggleImageMode = toggleImageMode;
 window.startRoomba = startRoomba;
 window.shutdownRoomba = shutdownRoomba;
+window.toggleRoombaDataPause = toggleRoombaDataPause;
+window.CommandCode = CommandCode;

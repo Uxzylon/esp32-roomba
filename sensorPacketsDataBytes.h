@@ -16,7 +16,7 @@ int getPacketSize(SensorPacketId packetID) {
         case WHEEL_OVERCURRENTS: return 1;
         case DIRT_DETECT: return 1;
         case INFRARED_CHARACTER_OMNI: return 1;
-        case BUTTONS: return 1;
+        case BUTTONS_SENSOR: return 1;
         case DISTANCE: return 2;
         case ANGLE: return 2;
         case CHARGING_STATE: return 1;

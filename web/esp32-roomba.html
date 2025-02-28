@@ -13,8 +13,11 @@
         <div class="background-placeholder">No video</div>
         <div class="overlay">
             <button class="toggle-button" onclick="toggleImageMode()">🔲</button>
-            <div class="info-panel" id="roombaDataContainer">
-                <pre id="roombaData"></pre>
+            <div class="info-panel-container">
+                <div class="info-panel" id="roombaDataContainer">
+                    <pre id="roombaData"></pre>
+                </div>
+                <div id="pauseButton" class="round-button pause-button disabled" onclick="toggleRoombaDataPause()">⏸</div>
             </div>
             <div class="joystick-container" id="joystickContainer">
                 <div id="joystickLeft" class="joystick joystick-vertical disabled">
@@ -39,7 +42,7 @@
                 </div>
             </div>
             <div class="round-buttons-left">
-                <div id="aButton" class="round-button disabled">A</div>
+                <div id="aButton" class="round-button disabled" onclick="sendCommand(CommandCode.BAUD, '10')">A</div>
                 <div id="bButton" class="round-button disabled">B</div>
                 <div id="cButton" class="round-button disabled">C</div>
             </div>
