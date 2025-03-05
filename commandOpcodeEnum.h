@@ -4,6 +4,7 @@
 #include <Arduino.h>
 
 enum CommandOpcode {
+    NONE = 0,
     RESET = 7,
     START = 128,
     BAUD = 129,
@@ -23,8 +24,8 @@ enum CommandOpcode {
     PWM_MOTORS = 144,
     DRIVE_DIRECT = 145,
     DRIVE_PWM = 146,
-    QUERY_LIST = 149,
     STREAM = 148,
+    QUERY_LIST = 149,
     PAUSE_RESUME_STREAM = 150,
     SCHEDULING_LEDS = 162,
     DIGIT_LEDS_RAW = 163,
@@ -32,7 +33,8 @@ enum CommandOpcode {
     BUTTONS = 165,
     SCHEDULE = 167,
     SET_DAY_TIME = 168,
-    STOP = 173
+    STOP = 173,
+    WAKEUP = 200 // Custom command
 };
 
 struct CommandMapping {
@@ -61,8 +63,8 @@ const CommandMapping commandMap[] = {
     {"pwm_motors", PWM_MOTORS, 3},
     {"drive_direct", DRIVE_DIRECT, 4},
     {"drive_pwm", DRIVE_PWM, 4},
-    {"query_list", QUERY_LIST, -2}, // N+1 bytes
     {"stream", STREAM, -2}, // N+1 bytes
+    {"query_list", QUERY_LIST, -2}, // N+1 bytes
     {"pause_resume_stream", PAUSE_RESUME_STREAM, 1},
     {"scheduling_leds", SCHEDULING_LEDS, 2},
     {"digit_leds_raw", DIGIT_LEDS_RAW, 4},
@@ -70,7 +72,8 @@ const CommandMapping commandMap[] = {
     {"buttons", BUTTONS, 1},
     {"schedule", SCHEDULE, 15},
     {"set_day_time", SET_DAY_TIME, 3},
-    {"stop", STOP, 0}
+    {"stop", STOP, 0},
+    {"wakeup", WAKEUP, 0}
 };
 
 CommandOpcode getOpcodeByName(const String& name) {

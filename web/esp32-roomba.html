@@ -12,10 +12,13 @@
         <img src="background.jpeg" class="background-image" id="backgroundImage">
         <div class="background-placeholder">No video</div>
         <div class="overlay">
-            <button class="toggle-button" onclick="toggleImageMode()">🔲</button>
+            <div class="top-buttons">
+                <button class="square-button" onclick="toggleImageMode()">🔲</button>
+                <button class="square-button" onclick="toggleMenu()">☰</button>
+            </div>
             <div class="info-panel-container">
                 <div class="info-panel" id="roombaDataContainer">
-                    <pre id="roombaData"></pre>
+                    <pre class="roombaData-stream"></pre>
                 </div>
                 <div id="pauseButton" class="round-button pause-button disabled" onclick="toggleRoombaDataPause()">⏸</div>
             </div>
@@ -52,6 +55,348 @@
                 <div id="fButton" class="round-button disabled">F</div>
                 <div id="gButton" class="round-button disabled">G</div>
             </div>
+        </div>
+    </div>
+    <div id="menuOverlay" class="menu-overlay">
+        <div class="menu-content">
+            <button class="close-button" onclick="toggleMenu()">✖</button>
+            <h2>Advanced Menu</h2>
+            <div class="menu-divider" id="command-wakeup">
+                <div class="command-row"></div>
+                <div class="command-params"></div>
+            </div>
+            <div class="menu-divider" id="command-start">
+                <div class="command-row"></div>
+                <div class="command-params"></div>
+            </div>
+            <div class="menu-divider" id="command-reset">
+                <div class="command-row"></div>
+                <div class="command-params"></div>
+            </div>
+            <div class="menu-divider" id="command-stop">
+                <div class="command-row"></div>
+                <div class="command-params"></div>
+            </div>
+            <div class="menu-divider" id="command-baud">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select>
+                        <option value="0">300</option>
+                        <option value="1">600</option>
+                        <option value="2">1200</option>
+                        <option value="3">2400</option>
+                        <option value="4">4800</option>
+                        <option value="5">9600</option>
+                        <option value="6">14400</option>
+                        <option value="7">19200</option>
+                        <option value="8">28800</option>
+                        <option value="9">38400</option>
+                        <option value="10">57600</option>
+                        <option value="11" selected>115200</option>
+                    </select>
+                </div>
+            </div>
+            <div class="menu-divider" id="command-safe">
+                <div class="command-row"></div>
+                <div class="command-params"></div>
+            </div>
+            <div class="menu-divider" id="command-full">
+                <div class="command-row"></div>
+                <div class="command-params"></div>
+            </div>
+            <div class="menu-divider" id="command-clean">
+                <div class="command-row"></div>
+                <div class="command-params"></div>
+            </div>
+            <div class="menu-divider" id="command-max">
+                <div class="command-row"></div>
+                <div class="command-params"></div>
+            </div>
+            <div class="menu-divider" id="command-spot">
+                <div class="command-row"></div>
+                <div class="command-params"></div>
+            </div>
+            <div class="menu-divider" id="command-seek_dock">
+                <div class="command-row"></div>
+                <div class="command-params"></div>
+            </div>
+            <div class="menu-divider" id="command-power">
+                <div class="command-row"></div>
+                <div class="command-params"></div>
+            </div>
+            <div class="menu-divider" id="command-schedule">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select multiple>
+                        <option value="0">Sun</option>
+                        <option value="1">Mon</option>
+                        <option value="2">Tue</option>
+                        <option value="3">Wed</option>
+                        <option value="4">Thu</option>
+                        <option value="5">Fri</option>
+                        <option value="6">Sat</option>
+                    </select>
+                    <input type="time" value="00:00">
+                    <input type="time" value="00:00">
+                    <input type="time" value="00:00">
+                    <input type="time" value="00:00">
+                    <input type="time" value="00:00">
+                    <input type="time" value="00:00">
+                    <input type="time" value="00:00">
+                </div>
+            </div>
+            <div class="menu-divider" id="command-set_day_time">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select>
+                        <option value="0">Sun</option>
+                        <option value="1">Mon</option>
+                        <option value="2">Tue</option>
+                        <option value="3">Wed</option>
+                        <option value="4">Thu</option>
+                        <option value="5">Fri</option>
+                        <option value="6">Sat</option>
+                    </select>
+                    <input type="time" value="00:00">
+                </div>
+            </div>
+            <div class="menu-divider" id="command-drive">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <input type="number" placeholder="Velocity" min="-500" max="500">
+                    <input type="number" placeholder="Radius" min="-2000" max="2000">
+                </div>
+            </div>
+            <div class="menu-divider" id="command-drive_direct">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <input type="number" placeholder="Right Velocity" min="-500" max="500">
+                    <input type="number" placeholder="Left Velocity" min="-500" max="500">
+                </div>
+            </div>
+            <div class="menu-divider" id="command-drive_pwm">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <input type="number" placeholder="Right PWM" min="-255" max="255">
+                    <input type="number" placeholder="Left PWM" min="-255" max="255">
+                </div>
+            </div>
+            <div class="menu-divider" id="command-motors">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select multiple>
+                        <option value="0">Side Brush</option>
+                        <option value="1">Vacuum</option>
+                        <option value="2">Main Brush</option>
+                        <option value="3">Side Brush Clockwise?</option>
+                        <option value="4">Main Brush Direction</option>
+                    </select>
+                </div>
+            </div>
+            <div class="menu-divider" id="command-pwm_motors">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <input type="number" placeholder="Main Brush PWM" min="-127" max="127">
+                    <input type="number" placeholder="Side Brush PWM" min="-127" max="127">
+                    <input type="number" placeholder="Vacuum PWM" min="0" max="127">
+                </div>
+            </div>
+            <div class="menu-divider" id="command-leds">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select multiple>
+                        <option value="0">Debris</option>
+                        <option value="1">Spot</option>
+                        <option value="2">Dock</option>
+                        <option value="3">Check Robot</option>
+                    </select>
+                    <input type="number" placeholder="Color" min="0" max="255">
+                    <input type="number" placeholder="Intensity" min="0" max="255">
+                </div>
+            </div>
+            <div class="menu-divider" id="command-scheduling_leds">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select multiple>
+                        <option value="0">Sun</option>
+                        <option value="1">Mon</option>
+                        <option value="2">Tue</option>
+                        <option value="3">Wed</option>
+                        <option value="4">Thu</option>
+                        <option value="5">Fri</option>
+                        <option value="6">Sat</option>
+                    </select>
+                    <select multiple>
+                        <option value="0">Colon (:)</option>
+                        <option value="1">PM</option>
+                        <option value="2">AM</option>
+                        <option value="3">Clock</option>
+                        <option value="4">Schedule</option>
+                    </select>
+                </div>
+            </div>
+            <div class="menu-divider" id="command-digit_leds_raw">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select multiple>
+                        <option value="0">A</option>
+                        <option value="1">B</option>
+                        <option value="2">C</option>
+                        <option value="3">D</option>
+                        <option value="4">E</option>
+                        <option value="5">F</option>
+                        <option value="6">G</option>
+                    </select>
+                    <select multiple>
+                        <option value="0">A</option>
+                        <option value="1">B</option>
+                        <option value="2">C</option>
+                        <option value="3">D</option>
+                        <option value="4">E</option>
+                        <option value="5">F</option>
+                        <option value="6">G</option>
+                    </select>
+                    <select multiple>
+                        <option value="0">A</option>
+                        <option value="1">B</option>
+                        <option value="2">C</option>
+                        <option value="3">D</option>
+                        <option value="4">E</option>
+                        <option value="5">F</option>
+                        <option value="6">G</option>
+                    </select>
+                    <select multiple>
+                        <option value="0">A</option>
+                        <option value="1">B</option>
+                        <option value="2">C</option>
+                        <option value="3">D</option>
+                        <option value="4">E</option>
+                        <option value="5">F</option>
+                        <option value="6">G</option>
+                    </select>
+                </div>
+            </div>
+            <div class="menu-divider" id="command-buttons">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select multiple>
+                        <option value="0">Clean</option>
+                        <option value="1">Spot</option>
+                        <option value="2">Dock</option>
+                        <option value="3">Minute</option>
+                        <option value="4">Hour</option>
+                        <option value="5">Day</option>
+                        <option value="6">Schedule</option>
+                        <option value="7">Clock</option>
+                    </select>
+                </div>
+            </div>
+            <div class="menu-divider" id="command-digit_leds_ascii">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <input type="text" placeholder="Digit 3 ASCII">
+                    <input type="text" placeholder="Digit 2 ASCII">
+                    <input type="text" placeholder="Digit 1 ASCII">
+                    <input type="text" placeholder="Digit 0 ASCII">
+                </div>
+            </div>
+            <div class="menu-divider" id="command-song">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select class="song-select">
+                        <option value="0">Song 0</option>
+                        <option value="1">Song 1</option>
+                        <option value="2">Song 2</option>
+                        <option value="3">Song 3</option>
+                        <option value="4">Song 4</option>
+                    </select>
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                    <select class="note"></select>
+                    <input type="number" placeholder="Duration" min="0" max="255">
+                </div>
+            </div>
+            <div class="menu-divider" id="command-play">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select>
+                        <option value="0">Song 0</option>
+                        <option value="1">Song 1</option>
+                        <option value="2">Song 2</option>
+                        <option value="3">Song 3</option>
+                        <option value="4">Song 4</option>
+                    </select>
+                </div>
+            </div>
+            <div class="menu-divider" id="command-sensors">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select class="sensor-select"></select>
+                </div>
+                <div class="command-output">
+                    <pre class="roombaData-sensors"></pre>
+                </div>
+            </div>
+            <div class="menu-divider" id="command-query_list">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <input type="number" class="n-packets" placeholder="Number of Packets" min="0" max="255">
+                </div>
+                <div class="command-output">
+                    <pre class="roombaData-query_list"></pre>
+                </div>
+            </div>
+            <div class="menu-divider" id="command-stream">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <input type="number" class="n-packets" placeholder="Number of Packets" min="0" max="255">
+                </div>
+                <div class="command-output">
+                    <pre class="roombaData-stream"></pre>
+                </div>
+            </div>
+            <div class="menu-divider" id="command-pause_resume_stream">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <select>
+                        <option value="0">Pause</option>
+                        <option value="1">Resume</option>
+                    </select>
+                </div>
+            </div>
+
+            <h3>Custom Command</h3>
+            <select id="commandSelect"></select>
+            <input type="text" id="customCommandParams" placeholder="Parameters">
+            <button onclick="sendCustomCommand()">Send</button>
         </div>
     </div>
     <script type="module" src="js/main.js"></script>

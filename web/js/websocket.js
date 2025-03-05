@@ -1,10 +1,12 @@
 
-import { afterConnect, afterDisconnect, afterRoombaTurnedOn } from "./main.js";
+import { afterConnect, afterDisconnect, afterRoombaTurnedOn, state } from "./main.js";
 export let ws;
 export let ipAddress;
 export let port;
 
-const roombaDataElement = document.getElementById('roombaData');
+const roombaDataStreamElements = document.getElementsByClassName("roombaData-stream");
+const roombaDataSensorsElements = document.getElementsByClassName("roombaData-sensors");
+const roombaDataQueryElements = document.getElementsByClassName("roombaData-query_list");
 
 export function connectWebSocket() {
     ipAddress = document.getElementById('ipAddress').value;
@@ -30,10 +32,6 @@ export function connectWebSocket() {
     };
 }
 
-export function clearRoombaData() {
-    roombaDataElement.textContent = '';
-}
-
 export function disconnectWebSocket() {
     if (ws) {
         ws.close();
@@ -49,12 +47,28 @@ export function sendWSCommand(command) {
 
 function displayRoombaData(data) {
     let jsonData = JSON.parse(data);
-    let text = JSON.stringify(jsonData, null, 2);
-    text = text.substring(1, text.length - 1);
+    let text = JSON.stringify(jsonData.data, null, 2);
     text = text.replace(/  /g, '');
+    text = text.substring(1, text.length - 1);
     text = text.substring(text.indexOf('\n') + 1);
-    if (roombaDataElement.textContent === '' && text) {
+
+    if ((!state.roombaTurnedOn && !state.paused) || (state.roombaTurnedOn && !state.paused)) {
         afterRoombaTurnedOn();
     }
-    roombaDataElement.textContent = text;
+
+    let elements;
+    if (jsonData.type === "stream") {
+        elements = roombaDataStreamElements;
+    } else if (jsonData.type === "sensors") {
+        elements = roombaDataSensorsElements;
+    } else if (jsonData.type === "query_list") {
+        elements = roombaDataQueryElements;
+    } else {
+        console.error("Unknown data type: " + jsonData.type);
+        return;
+    }
+
+    for (let i = 0; i < elements.length; i++) {
+        elements[i].textContent = text;
+    }
 }

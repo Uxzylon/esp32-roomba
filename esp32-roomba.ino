@@ -14,6 +14,11 @@ const int baudRate = 115200;
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 
+bool streamPaused = false;
+CommandOpcode sensorQueryListCommand = CommandOpcode::NONE;
+const int maxRequestedSensorPackets = 1024;
+SensorPacketId requestedSensorPackets[maxRequestedSensorPackets];
+
 void setup()
 {
     Serial.begin(baudRate);
@@ -103,37 +108,39 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
         String command = String((char *)payload);
         String action = command.substring(0, command.indexOf(' '));
 
-        const int maxParams = 16; // Adjust this based on the maximum number of parameters you expect
+        const int maxParams = 33; // Adjust this based on the maximum number of parameters you expect
         byte dataBytes[maxParams];
         int paramCount = parseCommandParameters(command, dataBytes, maxParams);
 
-        if (action == "wakeup")
-        {
-            wakeUp();
-        }
-        else if (action == "baud")
-        {
-            baud(static_cast<BaudRate>(dataBytes[0]));
-        } 
-        else if (action != "")
-        {
-            CommandOpcode opcode = getOpcodeByName(action);
-            if (opcode != static_cast<CommandOpcode>(-1))
-            {
-                int expectedDataBytes = getDataBytesByOpcode(opcode);
-                if (areDataBytesValid(expectedDataBytes, dataBytes, paramCount))
-                {
+        CommandOpcode opcode = getOpcodeByName(action);
+            
+        if (opcode != static_cast<CommandOpcode>(-1)) {
+            int expectedDataBytes = getDataBytesByOpcode(opcode);
+            if (areDataBytesValid(expectedDataBytes, dataBytes, paramCount)) {
+                if (opcode == CommandOpcode::WAKEUP) {
+                    wakeUp();
+                } else if (opcode == CommandOpcode::BAUD) {
+                    baud(static_cast<BaudRate>(dataBytes[0]));
+                } else if (opcode == CommandOpcode::PAUSE_RESUME_STREAM) {
+                    bool pause = dataBytes[0] == 0;
+                    pauseStream(pause);
+                    streamPaused = pause;
+                } else {
+                    if (opcode == CommandOpcode::SENSORS || opcode == CommandOpcode::QUERY_LIST) {
+                        pauseStream(true);
+                        storeRequestedSensorPackets(dataBytes, paramCount, opcode);
+                        clearSerialBuffer();
+                        // printRequestedSensorPackets();
+                    }
                     runCommand(static_cast<byte>(opcode), dataBytes, paramCount);
                 }
-                else
-                {
-                    Serial.println("Invalid parameters");
-                }
-            } 
-            else
-            {
-                Serial.println("Invalid command");
             }
+            else {
+                Serial.println("Invalid parameters");
+            }
+        } 
+        else {
+            Serial.println("Invalid command");
         }
     }
 }
@@ -163,6 +170,65 @@ bool areSongDataBytesValid(byte *dataBytes, int paramCount)
     }
     int songLength = dataBytes[1];
     return paramCount == 2 * songLength + 2;
+}
+
+void clearSerialBuffer()
+{
+    while (mySerial.available())
+    {
+        mySerial.read();
+    }
+}
+
+void storeRequestedSensorPackets(byte *dataBytes, int paramCount, CommandOpcode opcode) {
+    sensorQueryListCommand = opcode;
+    
+    // sensors command only has one parameter, which is the id of the sensor packet
+    // query_list command has multiple parameters, first is the number of packets, and the rest are the ids of the sensor packets
+    // ex: 'sensors 7' -> requestedSensorPackets = {7}
+    // ex: 'query_list 3 7 8 9' -> requestedSensorPackets = {7, 8, 9}
+    // you also need to check if a packet id is a group packet, and if it is, you need to add all the packets in that group to the requestedSensorPackets array
+    // ex: 'query_list 1 100' -> requestedSensorPackets = {BUMPS_AND_WHEEL_DROPS, WALL, CLIFF_LEFT, CLIFF_FRONT_LEFT, CLIFF_FRONT_RIGHT, CLIFF_RIGHT, VIRTUAL_WALL, ...
+    for (int i = 0; i < maxRequestedSensorPackets; i++) {
+        requestedSensorPackets[i] = static_cast<SensorPacketId>(-1);
+    }
+
+    int index = 0;
+
+    // Skip the first parameter for query_list command
+    int startIndex = 0;
+    if (paramCount > 1 && dataBytes[0] == paramCount - 1) {
+        startIndex = 1;
+    }
+
+    for (int i = startIndex; i < paramCount; i++) {
+        SensorPacketId packetID = static_cast<SensorPacketId>(dataBytes[i]);
+        if (isGroupPacket(packetID)) {
+            // Find the group packet and add all its sensor packets to the requestedSensorPackets array
+            for (const auto& groupPacket : groupPackets) {
+                if (groupPacket.id == packetID) {
+                    for (int j = 0; j < groupPacket.packetCount; j++) {
+                        requestedSensorPackets[index++] = groupPacket.packets[j];
+                    }
+                    break;
+                }
+            }
+        } else {
+            // Add the individual sensor packet to the requestedSensorPackets array
+            requestedSensorPackets[index++] = packetID;
+        }
+    }
+}
+
+void printRequestedSensorPackets()
+{
+    Serial.println("Requested sensor packets:");
+    for (int i = 0; i < maxRequestedSensorPackets; i++) {
+        if (requestedSensorPackets[i] != static_cast<SensorPacketId>(-1)) {
+            Serial.println(requestedSensorPackets[i]);
+        }
+    }
+    Serial.println();
 }
 
 void wakeUp()
@@ -200,7 +266,64 @@ void baud(BaudRate baudCode)
     setupSerial(baudRates[baudRateCode]);
 }
 
+void pauseStream(bool pause)
+{
+    byte cmd[2];
+    cmd[0] = 150;
+    cmd[1] = pause ? 0 : 1;
+    mySerial.write(cmd, 2);
+    delay(500);
+}
+
 void readDataFromRoomba() {
+    if (sensorQueryListCommand != CommandOpcode::NONE) {
+        // At this point we expect a sensors or query_list command response
+        // use requestedSensorPackets to know which sensor packets to expect
+        // parse the data and send it to the websocket
+        // There are no headers in the response, it's just the data bytes one after the other corresponding to the requested sensor packets
+        // The data bytes are sent in the same order as the requested sensor packets
+        
+        // query_list 3 7 35 100
+        
+        
+        if (mySerial.available()) {
+            Serial.println("Sensor or query_list command response");
+
+            byte data[maxRequestedSensorPackets];
+            int dataIndex = 0;
+
+            // Read the data bytes corresponding to the requested sensor packets
+            for (int i = 0; i < maxRequestedSensorPackets; i++) {
+                if (requestedSensorPackets[i] != static_cast<SensorPacketId>(-1)) {
+                    int packetSize = getPacketSize(requestedSensorPackets[i]);
+                    //Serial.println("Packet ID: " + String(requestedSensorPackets[i]) + ", Packet size: " + String(packetSize));
+                    data[dataIndex] = requestedSensorPackets[i];
+                    // data[dataIndex] = static_cast<byte>(requestedSensorPackets[i]);
+                    for (int j = 0; j < packetSize; j++) {
+                        if (mySerial.available()) {
+                            data[dataIndex + 1] = mySerial.read();
+                            dataIndex++;
+                        }
+                        delay(10);
+                    }
+                    dataIndex++;
+                }
+            }
+
+            // Parse the data and send it to the websocket
+            String jsonData = parseSensorData(data, dataIndex, sensorQueryListCommand);
+            Serial.println(jsonData);
+            webSocket.broadcastTXT(jsonData);
+
+            sensorQueryListCommand = CommandOpcode::NONE;
+            if (!streamPaused) {
+                pauseStream(false);
+            }
+        }
+
+        return;
+    } 
+    
     enum State {
         WAIT_FOR_HEADER,
         READ_NBYTES,
@@ -214,7 +337,7 @@ void readDataFromRoomba() {
     static byte header;
     static byte nBytes;
     static byte checksum;
-    static byte streamedData[256];
+    static byte streamedData[maxRequestedSensorPackets];
     static int dataIndex = 0;
 
     while (mySerial.available()) {
@@ -271,7 +394,7 @@ void readDataFromRoomba() {
 
             case PARSE_DATA:
                 {
-                    String jsonData = parseSensorData(streamedData, nBytes);
+                    String jsonData = parseSensorData(streamedData, nBytes, CommandOpcode::STREAM);
                     webSocket.broadcastTXT(jsonData);
                     state = WAIT_FOR_HEADER;
                 }
@@ -280,14 +403,38 @@ void readDataFromRoomba() {
     }
 }
 
-String parseSensorData(byte *streamedData, int nBytes) {
-    String jsonData = "{";
+String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType) {
+    // {"type":"sensors","data":{"bumps_wheeldrops":0,"wall":0,"cliff_left":0,"cliff_front_left":0,"cliff_front_right":0,"cliff_right":0,"virtual_wall":0,"wheel_overcurrents":0,"dirt_detect":0,"infrared_omni":0,"buttons":0,"distance":0,"angle":0,"charging_state":0,"voltage":0,"current":0,"temperature":0,"battery_charge":0,"battery_capacity":0,"wall_signal":0,"cliff_left_signal":0,"cliff_front_left_signal":0,"cliff_front_right_signal":0,"cliff_right_signal":0,"charging_sources_available":0,"oi_mode":0,"song_number":0,"song_playing":0,"number_of_stream_packets":0,"requested_velocity":0,"requested_radius":0,"requested_right_velocity":0,"requested_left_velocity":0,"left_encoder_counts":0,"right_encoder_counts":0,"light_bumper":0,"light_bump_left_signal":0,"light_bump_front_left_signal":0,"light_bump_center_left_signal":0,"light_bump_center_right_signal":0,"light_bump_front_right_signal":0,"light_bump_right_signal":0,"infrared_character_left":0,"infrared_character_right":0,"left_motor_current":0,"right_motor_current":0,"main_brush_motor_current":0,"side_brush_motor_current":0,"stasis":0}}
+    String jsonData = "{\"type\":\"";
+    if (dataType == CommandOpcode::SENSORS) {
+        jsonData += "sensors";
+    } else if (dataType == CommandOpcode::QUERY_LIST) {
+        jsonData += "query_list";
+    } else if (dataType == CommandOpcode::STREAM) {
+        jsonData += "stream";
+    } else {
+        jsonData += "unknown";
+    }
+    jsonData += "\",\"data\":{";
+
+    // String jsonData = "{";
     int dataIndex = 0;
+
+    // Serial.println("nBytes: " + String(nBytes));
 
     while (dataIndex < nBytes) {
         SensorPacketId packetID = static_cast<SensorPacketId>(streamedData[dataIndex]);
         int packetSize = getPacketSize(packetID);
         byte *sensorData = &streamedData[dataIndex + 1];
+
+        // Print the sensor data
+        // Serial.println("Packet ID: " + String(packetID) + ", Packet size: " + String(packetSize));
+        // Serial.print("Data bytes: ");
+        // for (int i = 0; i < packetSize; i++) {
+        //     Serial.print(sensorData[i]);
+        //     Serial.print(" ");
+        // }
+        // Serial.println();
 
         switch (packetID) {
             case BUMPS_AND_WHEEL_DROPS:
@@ -312,7 +459,7 @@ String parseSensorData(byte *streamedData, int nBytes) {
                 jsonData += "\"virtual_wall\":" + String(sensorData[0]) + ",";
                 break;
             case WHEEL_OVERCURRENTS:
-                jsonData += "\"motor_overcurrents\":" + String(sensorData[0]) + ",";
+                jsonData += "\"wheel_overcurrents\":" + String(sensorData[0]) + ",";
                 break;
             case DIRT_DETECT:
                 jsonData += "\"dirt_detect\":" + String(sensorData[0]) + ",";
@@ -320,7 +467,7 @@ String parseSensorData(byte *streamedData, int nBytes) {
             case INFRARED_CHARACTER_OMNI:
                 jsonData += "\"infrared_omni\":" + String(sensorData[0]) + ",";
                 break;
-            case BUTTONS:
+            case BUTTONS_SENSOR:
                 jsonData += "\"buttons\":" + String(sensorData[0]) + ",";
                 break;
             case DISTANCE:
@@ -448,7 +595,7 @@ String parseSensorData(byte *streamedData, int nBytes) {
     if (jsonData.endsWith(",")) {
         jsonData = jsonData.substring(0, jsonData.length() - 1);
     }
-    jsonData += "}";
+    jsonData += "}}";
 
     return jsonData;
 }

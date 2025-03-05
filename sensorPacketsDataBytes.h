@@ -15,6 +15,7 @@ int getPacketSize(SensorPacketId packetID) {
         case VIRTUAL_WALL: return 1;
         case WHEEL_OVERCURRENTS: return 1;
         case DIRT_DETECT: return 1;
+        case UNUSED_1: return 1;
         case INFRARED_CHARACTER_OMNI: return 1;
         case BUTTONS_SENSOR: return 1;
         case DISTANCE: return 2;
@@ -30,6 +31,8 @@ int getPacketSize(SensorPacketId packetID) {
         case CLIFF_FRONT_LEFT_SIGNAL: return 2;
         case CLIFF_FRONT_RIGHT_SIGNAL: return 2;
         case CLIFF_RIGHT_SIGNAL: return 2;
+        case UNUSED_2: return 1;
+        case UNUSED_3: return 2;
         case CHARGING_SOURCES_AVAILABLE: return 1;
         case OI_MODE: return 1;
         case SONG_NUMBER: return 1;

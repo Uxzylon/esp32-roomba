@@ -1,4 +1,11 @@
 export const SensorPacketId = {
+    GROUP_0: 0,
+    GROUP_1: 1,
+    GROUP_2: 2,
+    GROUP_3: 3,
+    GROUP_4: 4,
+    GROUP_5: 5,
+    GROUP_6: 6,
     BUMPS_AND_WHEEL_DROPS: 7,
     WALL: 8,
     CLIFF_LEFT: 9,
@@ -47,5 +54,9 @@ export const SensorPacketId = {
     RIGHT_MOTOR_CURRENT: 55,
     MAIN_BRUSH_MOTOR_CURRENT: 56,
     SIDE_BRUSH_MOTOR_CURRENT: 57,
-    STASIS: 58
+    STASIS: 58,
+    GROUP_100: 100,
+    GROUP_101: 101,
+    GROUP_106: 106,
+    GROUP_107: 107
 };
