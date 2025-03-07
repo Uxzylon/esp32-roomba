@@ -45,7 +45,7 @@
                 </div>
             </div>
             <div class="round-buttons-left">
-                <div id="aButton" class="round-button disabled" onclick="sendCommand(CommandCode.BAUD, '10')">A</div>
+                <div id="aButton" class="round-button disabled">A</div>
                 <div id="bButton" class="round-button disabled">B</div>
                 <div id="cButton" class="round-button disabled">C</div>
             </div>
@@ -356,6 +356,13 @@
                     </select>
                 </div>
             </div>
+            <div class="menu-divider" id="command-stream_song">
+                <div class="command-row"></div>
+                <div class="command-params">
+                    <label for="midiFile">Select MIDI file:</label>
+                    <input type="file" id="midiFile" accept=".mid">
+                </div>
+            </div>
             <div class="menu-divider" id="command-sensors">
                 <div class="command-row"></div>
                 <div class="command-params">
@@ -392,11 +399,6 @@
                     </select>
                 </div>
             </div>
-
-            <h3>Custom Command</h3>
-            <select id="commandSelect"></select>
-            <input type="text" id="customCommandParams" placeholder="Parameters">
-            <button onclick="sendCustomCommand()">Send</button>
         </div>
     </div>
     <script type="module" src="js/main.js"></script>

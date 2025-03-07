@@ -1,6 +1,7 @@
 #include <HardwareSerial.h>
 #include <WiFi.h>
 #include <WebSocketsServer.h>
+#include <queue>
 #include "config.h"
 #include "baudRateEnum.h"
 #include "sensorPacketIdEnum.h"
@@ -19,8 +20,27 @@ CommandOpcode sensorQueryListCommand = CommandOpcode::NONE;
 const int maxRequestedSensorPackets = 1024;
 SensorPacketId requestedSensorPackets[maxRequestedSensorPackets];
 
-void setup()
-{
+unsigned long songStartTime = 0;
+unsigned long currentSongDuration = 0;
+
+const int maxNotesPerSong = 40;
+const int nbSongSlotsUsed = 2;
+bool isRoombaPlayingSong = false;
+
+struct Song {
+    byte songNumber;
+    byte songLength;
+    byte notes[maxNotesPerSong * 2];
+    Song* next;
+};
+
+Song* songHead = nullptr;
+Song* songTail = nullptr;
+
+const int currentStreamSensorsSize = 59;
+SensorPacketId currentStreamSensors[currentStreamSensorsSize];
+
+void setup() {
     Serial.begin(baudRate);
 
     setupSerial(baudRate);
@@ -40,26 +60,71 @@ void setup()
     webSocket.onEvent(webSocketEvent);
 }
 
-void setupSerial(int newBaudRate)
-{
+void setupSerial(int newBaudRate) {
     mySerial.begin(newBaudRate, SERIAL_8N1, 16, 17); // RX, TX
 }
 
-void loop()
-{
+void loop() {
     webSocket.loop();
     readDataFromRoomba();
+
+    if (songHead && millis() - songStartTime >= (currentSongDuration * 0.25) && !isRoombaPlayingSong) {
+        playNextSong();
+    }
 }
 
-int parseCommandParameters(String command, byte* dataBytes, int maxParams)
-{
-    // commands are like "command param1 param2 param3 ..."
-    // commands can also have no parameters (ex: start)
-    // params are single bytes, however, for the drive commands, the first two params are int16_t (ex: drive 100 -200). Also these commands needs to be changed to have 4 parameters (low byte and high byte for each int16_t)
-    // ex: 'start' -> dataBytes = {} and returns 0
-    // ex: 'baud 11' -> dataBytes = {11} and returns 1
-    // ex: 'drive 100 -200' -> dataBytes = {100, 0, 56, 255} and returns 4
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+    if (type == WStype_CONNECTED)
+    {
+        Serial.println("Connected");
+    }
+    
+    if (type == WStype_TEXT)
+    {
+        String command = String((char *)payload);
+        String action = command.substring(0, command.indexOf(' '));
 
+        const int maxParams = 1024;
+        int dataBytes[maxParams];
+        int paramCount = parseCommandParameters(command, dataBytes, maxParams);
+
+        CommandOpcode opcode = getOpcodeByName(action);
+            
+        if (opcode != static_cast<CommandOpcode>(-1)) {
+            int expectedDataBytes = getDataBytesByOpcode(opcode);
+            if (areDataBytesValid(expectedDataBytes, dataBytes, paramCount)) {
+                if (opcode == CommandOpcode::WAKEUP) {
+                    wakeUp();
+                } else if (opcode == CommandOpcode::BAUD) {
+                    baud(static_cast<BaudRate>(dataBytes[0]));
+                } else if (opcode == CommandOpcode::PAUSE_RESUME_STREAM) {
+                    bool pause = dataBytes[0] == 0;
+                    pauseStream(pause);
+                    delay(500);
+                    streamPaused = pause;
+                } else if (opcode == CommandOpcode::STREAM_SONG) {
+                    handleStreamSongCommand(dataBytes, paramCount);
+                } else {
+                    if (opcode == CommandOpcode::SENSORS || opcode == CommandOpcode::QUERY_LIST) {
+                        pauseStream(true);
+                        delay(500);
+                        storeRequestedSensorPackets(dataBytes, paramCount, opcode);
+                        clearSerialBuffer();
+                    }
+                    runCommand(static_cast<byte>(opcode), dataBytes, paramCount);
+                }
+            }
+            else {
+                Serial.println("Invalid parameters");
+            }
+        } 
+        else {
+            Serial.println("Invalid command");
+        }
+    }
+}
+
+int parseCommandParameters(String command, int* dataBytes, int maxParams) {
     int paramCount = 0;
     int start = command.indexOf(' ') + 1;
     bool isDriveCommand = command.startsWith("drive");
@@ -95,100 +160,34 @@ int parseCommandParameters(String command, byte* dataBytes, int maxParams)
     return paramCount;
 }
 
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
-{
-    // on websocket connect
-    if (type == WStype_CONNECTED)
-    {
-        Serial.println("Connected");
-    }
-    
-    if (type == WStype_TEXT)
-    {
-        String command = String((char *)payload);
-        String action = command.substring(0, command.indexOf(' '));
-
-        const int maxParams = 33; // Adjust this based on the maximum number of parameters you expect
-        byte dataBytes[maxParams];
-        int paramCount = parseCommandParameters(command, dataBytes, maxParams);
-
-        CommandOpcode opcode = getOpcodeByName(action);
-            
-        if (opcode != static_cast<CommandOpcode>(-1)) {
-            int expectedDataBytes = getDataBytesByOpcode(opcode);
-            if (areDataBytesValid(expectedDataBytes, dataBytes, paramCount)) {
-                if (opcode == CommandOpcode::WAKEUP) {
-                    wakeUp();
-                } else if (opcode == CommandOpcode::BAUD) {
-                    baud(static_cast<BaudRate>(dataBytes[0]));
-                } else if (opcode == CommandOpcode::PAUSE_RESUME_STREAM) {
-                    bool pause = dataBytes[0] == 0;
-                    pauseStream(pause);
-                    streamPaused = pause;
-                } else {
-                    if (opcode == CommandOpcode::SENSORS || opcode == CommandOpcode::QUERY_LIST) {
-                        pauseStream(true);
-                        storeRequestedSensorPackets(dataBytes, paramCount, opcode);
-                        clearSerialBuffer();
-                        // printRequestedSensorPackets();
-                    }
-                    runCommand(static_cast<byte>(opcode), dataBytes, paramCount);
-                }
+bool areDataBytesValid(int expectedDataBytes, int *dataBytes, int paramCount) {
+    switch (expectedDataBytes) {
+        case -1:
+            return false;
+        case -2:
+            return paramCount > 0 && paramCount == dataBytes[0] + 1;
+        case -3:
+            if (paramCount < 2) {
+                return false;
             }
-            else {
-                Serial.println("Invalid parameters");
-            }
-        } 
-        else {
-            Serial.println("Invalid command");
-        }
+            return paramCount == 2 * dataBytes[1] + 2;
+        case -4:
+            return paramCount > 0 && paramCount == dataBytes[0] * 2 + 1;
+        default:
+            return paramCount == expectedDataBytes;
     }
 }
 
-bool areDataBytesValid(int expectedDataBytes, byte *dataBytes, int paramCount)
-{
-    if (expectedDataBytes == -1)
-    {
-        return false;
-    }
-    if (expectedDataBytes == -2)
-    {
-        return paramCount > 0 && paramCount == dataBytes[0] + 1;
-    }
-    if (expectedDataBytes == -3)
-    {
-        return areSongDataBytesValid(dataBytes, paramCount);
-    }
-    return paramCount == expectedDataBytes;
-}
-
-bool areSongDataBytesValid(byte *dataBytes, int paramCount)
-{
-    if (paramCount < 2)
-    {
-        return false;
-    }
-    int songLength = dataBytes[1];
-    return paramCount == 2 * songLength + 2;
-}
-
-void clearSerialBuffer()
-{
+void clearSerialBuffer() {
     while (mySerial.available())
     {
         mySerial.read();
     }
 }
 
-void storeRequestedSensorPackets(byte *dataBytes, int paramCount, CommandOpcode opcode) {
+void storeRequestedSensorPackets(int *dataBytes, int paramCount, CommandOpcode opcode) {
     sensorQueryListCommand = opcode;
     
-    // sensors command only has one parameter, which is the id of the sensor packet
-    // query_list command has multiple parameters, first is the number of packets, and the rest are the ids of the sensor packets
-    // ex: 'sensors 7' -> requestedSensorPackets = {7}
-    // ex: 'query_list 3 7 8 9' -> requestedSensorPackets = {7, 8, 9}
-    // you also need to check if a packet id is a group packet, and if it is, you need to add all the packets in that group to the requestedSensorPackets array
-    // ex: 'query_list 1 100' -> requestedSensorPackets = {BUMPS_AND_WHEEL_DROPS, WALL, CLIFF_LEFT, CLIFF_FRONT_LEFT, CLIFF_FRONT_RIGHT, CLIFF_RIGHT, VIRTUAL_WALL, ...
     for (int i = 0; i < maxRequestedSensorPackets; i++) {
         requestedSensorPackets[i] = static_cast<SensorPacketId>(-1);
     }
@@ -220,27 +219,97 @@ void storeRequestedSensorPackets(byte *dataBytes, int paramCount, CommandOpcode 
     }
 }
 
-void printRequestedSensorPackets()
-{
-    Serial.println("Requested sensor packets:");
-    for (int i = 0; i < maxRequestedSensorPackets; i++) {
-        if (requestedSensorPackets[i] != static_cast<SensorPacketId>(-1)) {
-            Serial.println(requestedSensorPackets[i]);
+void handleStreamSongCommand(int* dataBytes, int paramCount) {
+    int totalNotes = dataBytes[0];
+    int remainingNotes = totalNotes;
+    int noteIndex = 1;
+
+    while (remainingNotes > 0) {
+        Song* song = new Song;
+        song->songNumber = 255;
+        song->songLength = min(remainingNotes, maxNotesPerSong);
+
+        if (paramCount != 1 + totalNotes * 2) {
+            Serial.println("Invalid STREAM_SONG command");
+            Serial.println("songLength: " + String(song->songLength));
+            Serial.println("paramCount: " + String(paramCount));
+            delete song;
+            return;
         }
+
+        for (int i = 0; i < song->songLength * 2; i++) {
+            song->notes[i] = dataBytes[noteIndex++];
+        }
+        song->next = nullptr;
+
+        if (songTail) {
+            songTail->next = song;
+        } else {
+            songHead = song;
+        }
+        songTail = song;
+
+        remainingNotes -= song->songLength;
     }
-    Serial.println();
 }
 
-void wakeUp()
-{
-    pinMode(wakeupPin, OUTPUT);
-    digitalWrite(wakeupPin, HIGH);
-    delay(500);
-    digitalWrite(wakeupPin, LOW);
+void playNextSong() {
+    Song* song = songHead;
+    songHead = songHead->next;
+    if (!songHead) {
+        songTail = nullptr;
+    }
+
+    addToCurrentStream(SensorPacketId::SONG_PLAYING);
+
+    // Upload first song to slot 0
+    if (song->songNumber == 255) {
+        song->songNumber = 0;
+        sendSong(song);
+        isRoombaPlayingSong = true;
+    }
+    byte currentSongNumber = song->songNumber;
+
+    // Play the song
+    byte playCmd[2] = {141, song->songNumber};
+    mySerial.write(playCmd, 2);
+
+    // Set the start time
+    songStartTime = millis();
+
+    // Compute the duration of the song
+    currentSongDuration = 0;
+    int totalSongDuration = 0;
+    for (int i = 0; i < song->songLength; i++) {
+        int noteIndex = i * 2;
+        int durationIndex = noteIndex + 1;
+        totalSongDuration += song->notes[durationIndex];
+    }
+
+    // Convert to milliseconds
+    currentSongDuration = totalSongDuration * 1000 / 64;
+
+    // Set the next song number and upload next song
+    Song* nextSong = song->next;
+    for (int i = 0; nextSong && i < nbSongSlotsUsed - 1; i++) {
+        if (nextSong->songNumber == 255) {
+            int newSongNumber = 0;
+            if (currentSongNumber < nbSongSlotsUsed - 1) {
+                newSongNumber = currentSongNumber + 1;
+            }
+            currentSongNumber = newSongNumber;
+            nextSong->songNumber = currentSongNumber;
+            sendSong(nextSong);
+        } else {
+            currentSongNumber = nextSong->songNumber;
+        }
+        nextSong = nextSong->next;
+    }
+
+    delete song;
 }
 
-void runCommand(byte command, byte *data, int dataLength)
-{
+void runCommand(byte command, int *data, int dataLength) {
     byte cmd[dataLength + 1];
     cmd[0] = command;
     for (int i = 0; i < dataLength; i++)
@@ -250,8 +319,25 @@ void runCommand(byte command, byte *data, int dataLength)
     mySerial.write(cmd, dataLength + 1);
 }
 
-void baud(BaudRate baudCode)
-{
+void sendSong(Song* song) {
+    byte cmd[131];
+    cmd[0] = 140;
+    cmd[1] = song->songNumber;
+    cmd[2] = song->songLength;
+    for (int i = 0; i < song->songLength * 2; i++) {
+        cmd[3 + i] = song->notes[i];
+    }
+    mySerial.write(cmd, 3 + song->songLength * 2);
+}
+
+void wakeUp() {
+    pinMode(wakeupPin, OUTPUT);
+    digitalWrite(wakeupPin, HIGH);
+    delay(500);
+    digitalWrite(wakeupPin, LOW);
+}
+
+void baud(BaudRate baudCode) {
     byte cmd[2];
     cmd[0] = 129;
 
@@ -266,26 +352,53 @@ void baud(BaudRate baudCode)
     setupSerial(baudRates[baudRateCode]);
 }
 
-void pauseStream(bool pause)
-{
+void stream(int *data, int dataLength) {
+    byte cmd[dataLength + 1];
+    cmd[0] = 148;
+    cmd[1] = dataLength;
+    for (int i = 0; i < dataLength; i++)
+    {
+        cmd[i + 2] = data[i];
+    }
+    mySerial.write(cmd, dataLength + 2);
+    pauseStream(false);
+}
+
+void pauseStream(bool pause) {
     byte cmd[2];
     cmd[0] = 150;
     cmd[1] = pause ? 0 : 1;
     mySerial.write(cmd, 2);
-    delay(500);
+}
+
+void addToCurrentStream(SensorPacketId packetID) {
+    if (currentStreamSensors[packetID] != static_cast<SensorPacketId>(-1)) {
+        return;
+    }
+    currentStreamSensors[packetID] = packetID;
+    int dataLength = 0;
+    for (int i = 0; i < currentStreamSensorsSize; i++) {
+        if (currentStreamSensors[i] != static_cast<SensorPacketId>(-1)) {
+            dataLength++;
+        }
+    }
+    int data[dataLength];
+    int index = 0;
+    for (int i = 0; i < currentStreamSensorsSize; i++) {
+        if (currentStreamSensors[i] != static_cast<SensorPacketId>(-1)) {
+            data[index++] = currentStreamSensors[i];
+        }
+    }
+    // print data and dataLength
+    Serial.println("Data length: " + String(dataLength));
+    for (int i = 0; i < dataLength; i++) {
+        Serial.println(data[i]);
+    }
+    stream(data, dataLength);
 }
 
 void readDataFromRoomba() {
     if (sensorQueryListCommand != CommandOpcode::NONE) {
-        // At this point we expect a sensors or query_list command response
-        // use requestedSensorPackets to know which sensor packets to expect
-        // parse the data and send it to the websocket
-        // There are no headers in the response, it's just the data bytes one after the other corresponding to the requested sensor packets
-        // The data bytes are sent in the same order as the requested sensor packets
-        
-        // query_list 3 7 35 100
-        
-        
         if (mySerial.available()) {
             Serial.println("Sensor or query_list command response");
 
@@ -296,9 +409,7 @@ void readDataFromRoomba() {
             for (int i = 0; i < maxRequestedSensorPackets; i++) {
                 if (requestedSensorPackets[i] != static_cast<SensorPacketId>(-1)) {
                     int packetSize = getPacketSize(requestedSensorPackets[i]);
-                    //Serial.println("Packet ID: " + String(requestedSensorPackets[i]) + ", Packet size: " + String(packetSize));
                     data[dataIndex] = requestedSensorPackets[i];
-                    // data[dataIndex] = static_cast<byte>(requestedSensorPackets[i]);
                     for (int j = 0; j < packetSize; j++) {
                         if (mySerial.available()) {
                             data[dataIndex + 1] = mySerial.read();
@@ -318,9 +429,9 @@ void readDataFromRoomba() {
             sensorQueryListCommand = CommandOpcode::NONE;
             if (!streamPaused) {
                 pauseStream(false);
+                delay(500);
             }
         }
-
         return;
     } 
     
@@ -404,7 +515,6 @@ void readDataFromRoomba() {
 }
 
 String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType) {
-    // {"type":"sensors","data":{"bumps_wheeldrops":0,"wall":0,"cliff_left":0,"cliff_front_left":0,"cliff_front_right":0,"cliff_right":0,"virtual_wall":0,"wheel_overcurrents":0,"dirt_detect":0,"infrared_omni":0,"buttons":0,"distance":0,"angle":0,"charging_state":0,"voltage":0,"current":0,"temperature":0,"battery_charge":0,"battery_capacity":0,"wall_signal":0,"cliff_left_signal":0,"cliff_front_left_signal":0,"cliff_front_right_signal":0,"cliff_right_signal":0,"charging_sources_available":0,"oi_mode":0,"song_number":0,"song_playing":0,"number_of_stream_packets":0,"requested_velocity":0,"requested_radius":0,"requested_right_velocity":0,"requested_left_velocity":0,"left_encoder_counts":0,"right_encoder_counts":0,"light_bumper":0,"light_bump_left_signal":0,"light_bump_front_left_signal":0,"light_bump_center_left_signal":0,"light_bump_center_right_signal":0,"light_bump_front_right_signal":0,"light_bump_right_signal":0,"infrared_character_left":0,"infrared_character_right":0,"left_motor_current":0,"right_motor_current":0,"main_brush_motor_current":0,"side_brush_motor_current":0,"stasis":0}}
     String jsonData = "{\"type\":\"";
     if (dataType == CommandOpcode::SENSORS) {
         jsonData += "sensors";
@@ -417,11 +527,12 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType) {
     }
     jsonData += "\",\"data\":{";
 
-    // String jsonData = "{";
+    // clear currentStreamSensors
+    for (int i = 0; i < currentStreamSensorsSize; i++) {
+        currentStreamSensors[i] = static_cast<SensorPacketId>(-1);
+    }
+
     int dataIndex = 0;
-
-    // Serial.println("nBytes: " + String(nBytes));
-
     while (dataIndex < nBytes) {
         SensorPacketId packetID = static_cast<SensorPacketId>(streamedData[dataIndex]);
         int packetSize = getPacketSize(packetID);
@@ -519,6 +630,7 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType) {
                 jsonData += "\"song_number\":" + String(sensorData[0]) + ",";
                 break;
             case SONG_PLAYING:
+                isRoombaPlayingSong = sensorData[0] == 1;
                 jsonData += "\"song_playing\":" + String(sensorData[0]) + ",";
                 break;
             case NUMBER_OF_STREAM_PACKETS:
@@ -589,6 +701,10 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType) {
         }
 
         dataIndex += packetSize + 1;
+
+        if (packetID < currentStreamSensorsSize) {
+            currentStreamSensors[packetID] = packetID;
+        }
     }
 
     // Remove the trailing comma and close the JSON string

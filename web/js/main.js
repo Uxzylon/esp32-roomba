@@ -55,14 +55,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const backgroundImage = document.getElementById('backgroundImage');
     backgroundImage.style.objectFit = 'contain';
 
-    const commandSelect = document.getElementById('commandSelect');
-    for (const command in CommandCode) {
-        const option = document.createElement('option');
-        option.value = CommandCode[command];
-        option.text = command;
-        commandSelect.appendChild(option);
-    };
-
     updateMenuCommands();
     fillNoteSelections();
     fillSensorSelections();
@@ -80,12 +72,12 @@ const portInput = document.getElementById('port');
 
 const buttons = [
     document.getElementById('aButton'),
-    // document.getElementById('bButton'),
-    // document.getElementById('cButton'),
-    // document.getElementById('dButton'),
-    // document.getElementById('eButton'),
-    // document.getElementById('fButton'),
-    // document.getElementById('gButton')
+    document.getElementById('bButton'),
+    document.getElementById('cButton'),
+    document.getElementById('dButton'),
+    document.getElementById('eButton'),
+    document.getElementById('fButton'),
+    document.getElementById('gButton')
 ];
 
 export function afterConnect() {
@@ -177,12 +169,6 @@ export function toggleRoombaDataPause(pause) {
 function toggleMenu() {
     const menuOverlay = document.getElementById('menuOverlay');
     menuOverlay.style.display = menuOverlay.style.display === 'flex' ? 'none' : 'flex';
-}
-
-function sendCustomCommand() {
-    const commandSelect = document.getElementById('commandSelect');
-    const paramsInput = document.getElementById('customCommandParams');
-    sendCommand(commandSelect.value, paramsInput.value);
 }
 
 function updateMenuCommands() {
@@ -286,5 +272,4 @@ window.toggleMenu = toggleMenu;
 window.startRoomba = startRoomba;
 window.shutdownRoomba = shutdownRoomba;
 window.toggleRoombaDataPause = toggleRoombaDataPause;
-window.sendCustomCommand = sendCustomCommand;
 window.CommandCode = CommandCode;

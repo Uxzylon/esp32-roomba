@@ -2,9 +2,9 @@ import { sendWSCommand } from './websocket.js';
 import { afterRoombaShutdown, afterRoombaTurnedOn } from './main.js';
 import { SensorPacketId } from './sensors.js';
 import { state, toggleRoombaDataPause } from './main.js';
+import { parseMidi } from './midiParser.js';
 
 export const CommandCode = {
-    WAKEUP: "wakeup",
     RESET: "reset",
     START: "start",
     BAUD: "baud",
@@ -33,11 +33,12 @@ export const CommandCode = {
     BUTTONS: "buttons",
     SCHEDULE: "schedule",
     SET_DAY_TIME: "set_day_time",
-    STOP: "stop"
+    STOP: "stop",
+    WAKEUP: "wakeup", // Custom commands
+    STREAM_SONG: "stream_song"
 };
 
 const CommandInfo = {
-    wakeup: { opcode: 0, dataBytes: 0 },
     reset: { opcode: 7, dataBytes: 0 },
     start: { opcode: 128, dataBytes: 0 },
     baud: { opcode: 129, dataBytes: 1, 
@@ -248,7 +249,60 @@ const CommandInfo = {
             sendCommand(CommandCode.SET_DAY_TIME, parseInt(daySelect.value), parseInt(time[0]), parseInt(time[1]));
         }
     },
-    stop: { opcode: 173, dataBytes: 0 }
+    stop: { opcode: 173, dataBytes: 0 },
+    wakeup: { opcode: 200, dataBytes: 0 },
+    stream_song: { opcode: 201, dataBytes: -2,
+        send: async (commandDiv) => {
+            const fileInput = commandDiv.querySelector('#midiFile');
+            const file = fileInput.files[0];
+            if (!file) {
+                console.error("No MIDI file selected");
+                return;
+            }
+
+            const arrayBuffer = await file.arrayBuffer();
+            const midiData = parseMidi(arrayBuffer);
+
+            // Assuming parseMidi returns an array of notes and durations
+            // Each note is an object with { note: <note_value>, duration: <duration_value> }
+            
+            // const maxSongLength = 64;
+            
+            // let songData = [];
+            // let songLength = 0;
+            // for (const note of midiData) {
+            //     if (songLength >= maxSongLength) {
+            //         break;
+            //     }
+            //     songData.push(note.note);
+            //     songData.push(note.duration);
+            //     songLength++;
+            // }
+
+            // sendCommand(CommandCode.SONG, 0, songLength, ...songData);
+
+            let songNumber = 0;
+            let songLength = 0;
+            let songData = [];
+
+            for (let i = 0; i < midiData.length; i++) {
+                songData.push(midiData[i].note);
+                songData.push(midiData[i].duration);
+                songLength++;
+
+                if (songLength === 511 || i === midiData.length - 1) {
+                    //sendCommand(CommandCode.STREAM_SONG, 0, songLength, ...songData);
+                    setTimeout((songLength, songData) => {
+                        sendCommand(CommandCode.STREAM_SONG, songLength, ...songData);
+                        // sendCommand(CommandCode.PLAY, 0);
+                    }, songNumber * 300, songLength, songData);
+                    songNumber++;
+                    songLength = 0;
+                    songData = [];
+                }
+            }
+        }
+    }
 };
 
 export function getCommandOpcode(commandCode) {
@@ -365,6 +419,8 @@ export const defaultStreamPackets = [
     SensorPacketId.BATTERY_CHARGE,
     SensorPacketId.BATTERY_CAPACITY,
     SensorPacketId.OI_MODE,
+    SensorPacketId.SONG_NUMBER,
+    SensorPacketId.SONG_PLAYING,
     SensorPacketId.LIGHT_BUMPER,
     SensorPacketId.LEFT_MOTOR_CURRENT,
     SensorPacketId.RIGHT_MOTOR_CURRENT,
@@ -374,7 +430,6 @@ export const defaultStreamPackets = [
 
 export function sendCommand(commandCode, ...args) {
     const command = `${commandCode} ${args.join(' ')}`;
-    console.log('Sending command: ' + command);
     sendWSCommand(command);
 }
 
