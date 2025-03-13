@@ -9,6 +9,8 @@ export const state = {
     roombaTurnedOn: false
 };
 
+let streamInterval;
+
 document.addEventListener('DOMContentLoaded', function() {
     let savedIpAddress = localStorage.getItem('ipAddress');
     if (savedIpAddress) {
@@ -98,6 +100,16 @@ export function afterConnect() {
     } else if (!state.roombaTurnedOn && !state.paused || (state.roombaTurnedOn && state.paused)) {
         afterRoombaTurnedOn(false);
     }
+
+    // Set the video source to the MJPEG stream
+    const ipAddress = ipAddressInput.value;
+    const backgroundImage = document.getElementById('backgroundImage');
+    backgroundImage.src = `http://${ipAddress}`;
+
+    // Update the image source periodically to fetch new frames
+    streamInterval = setInterval((backgroundImage) => {
+        backgroundImage.src = `http://${ipAddress}`;
+    }, 500, backgroundImage);
 }
 
 export function afterDisconnect() {
@@ -113,6 +125,11 @@ export function afterDisconnect() {
 
     startButton.disabled = true;
     shutdownButton.disabled = true;
+
+    // Clear the image source and stop the interval
+    const backgroundImage = document.getElementById('backgroundImage');
+    backgroundImage.src = '';
+    clearInterval(streamInterval);
 }
 
 export function afterRoombaTurnedOn(updateState = true) {

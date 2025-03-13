@@ -10,7 +10,7 @@ ESP32 Controlled iRobot Roomba using iRobot® Create® 2 Open Interface
 
 ## Requirements
 
-- ESP32 (I used ESP-WROOM-32)
+- ESP32 (I used ESP32-CAM)
 - Compatible Roomba (I used Roomba 564)
 - Voltage Regulator (To use unregulated battery voltage from Roomba to 5V for ESP32)
 - Arduino IDE
@@ -19,8 +19,8 @@ ESP32 Controlled iRobot Roomba using iRobot® Create® 2 Open Interface
 
 ![Roomba Pinouts](images/roomba-pinout.jpg)
 
-- Connect Roomba BRC (Pin 5) to ESP32 (Pin 5)
-- Connect Roomba RXD (Pin 3) to ESP32 TX2 (Pin 17)
+- Connect Roomba BRC (Pin 5) to ESP32 (Pin 14)
+- Connect Roomba RXD (Pin 3) to ESP32 TX2 (Pin 15)
 - Connect Roomba TXD (Pin 4) to ESP32 RX2 (Pin 16)
 - Connect Roomba GND (Pin 6 or 7) to Voltage Regulator Input GND and Output GND to ESP32 GND
 - Connect Roomba Vpwr (Pin 1 or 2) to Voltage Regulator Input Vin and Output Vout to ESP32 5V
