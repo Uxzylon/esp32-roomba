@@ -106,10 +106,20 @@ export function afterConnect() {
     const backgroundImage = document.getElementById('backgroundImage');
     backgroundImage.src = `http://${ipAddress}`;
 
+    // backgroundImage.style.transform = 'rotate(133deg)';
+    // backgroundImage.style.transformOrigin = 'center';
+
+    function updateImage() {
+        backgroundImage.src = `http://${ipAddress}?t=${new Date().getTime()}`; // Add a timestamp to prevent caching
+    }
+
+    backgroundImage.onload = updateImage;
+    updateImage();
+
     // Update the image source periodically to fetch new frames
-    streamInterval = setInterval((backgroundImage) => {
-        backgroundImage.src = `http://${ipAddress}`;
-    }, 500, backgroundImage);
+    // streamInterval = setInterval((backgroundImage) => {
+    //     backgroundImage.src = `http://${ipAddress}`;
+    // }, 1000, backgroundImage);
 }
 
 export function afterDisconnect() {

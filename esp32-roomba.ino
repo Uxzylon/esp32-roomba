@@ -14,6 +14,7 @@
 #include "sensorPacketIdEnum.h"
 #include "sensorPacketsDataBytes.h"
 #include "commandOpcodeEnum.h"
+#include <ArduinoOTA.h>
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 
@@ -76,6 +77,7 @@ static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
 httpd_handle_t stream_httpd = NULL;
+const int jpegCompression = 80;
 
 void setup()
 {
@@ -115,7 +117,7 @@ void setup()
     config.pin_sscb_scl = SIOC_GPIO_NUM;
     config.pin_pwdn = PWDN_GPIO_NUM;
     config.pin_reset = RESET_GPIO_NUM;
-    config.xclk_freq_hz = 20000000;
+    config.xclk_freq_hz = 8000000;
     config.pixel_format = PIXFORMAT_JPEG;
 
     if (psramFound())
@@ -155,6 +157,53 @@ void setup()
 
     // Start streaming web server
     startCameraServer();
+
+    // OTA setup
+    ArduinoOTA.onStart([]() {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH)
+        {
+            type = "sketch";
+        }
+        else
+        { // U_SPIFFS
+            type = "filesystem";
+        }
+        // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+        Serial.println("Start updating " + type);
+    });
+    ArduinoOTA.onEnd([]() {
+        Serial.println("\nEnd");
+        ESP.restart();
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR)
+        {
+            Serial.println("Auth Failed");
+        }
+        else if (error == OTA_BEGIN_ERROR)
+        {
+            Serial.println("Begin Failed");
+        }
+        else if (error == OTA_CONNECT_ERROR)
+        {
+            Serial.println("Connect Failed");
+        }
+        else if (error == OTA_RECEIVE_ERROR)
+        {
+            Serial.println("Receive Failed");
+        }
+        else if (error == OTA_END_ERROR)
+        {
+            Serial.println("End Failed");
+        }
+    });
+    ArduinoOTA.setTimeout(60000);
+    ArduinoOTA.begin();
 }
 
 void loop()
@@ -166,6 +215,8 @@ void loop()
     {
         playNextSong();
     }
+
+    ArduinoOTA.handle();
 }
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
@@ -272,7 +323,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
             {
                 if (fb->format != PIXFORMAT_JPEG)
                 {
-                    bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
+                    bool jpeg_converted = frame2jpg(fb, jpegCompression, &_jpg_buf, &_jpg_buf_len);
                     esp_camera_fb_return(fb);
                     fb = NULL;
                     if (!jpeg_converted)
