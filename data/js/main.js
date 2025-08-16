@@ -12,15 +12,6 @@ export const state = {
 let streamInterval;
 
 document.addEventListener('DOMContentLoaded', function() {
-    let savedIpAddress = localStorage.getItem('ipAddress');
-    if (savedIpAddress) {
-        document.getElementById('ipAddress').value = savedIpAddress; // Set saved IP address
-    }
-    let savedPort = localStorage.getItem('port');
-    if (savedPort) {
-        document.getElementById('port').value = savedPort; // Set saved port
-    }
-
     const joystickLeft = document.getElementById('joystickLeft');
     const joystickRight = document.getElementById('joystickRight');
     const joystickLeftHandle = joystickLeft.querySelector('.joystick-handle');
@@ -69,9 +60,6 @@ const startButton = document.getElementById('startButton');
 const shutdownButton = document.getElementById('shutdownButton');
 const pauseButton = document.getElementById('pauseButton');
 
-const ipAddressInput = document.getElementById('ipAddress');
-const portInput = document.getElementById('port');
-
 const buttons = [
     document.getElementById('aButton'),
     document.getElementById('bButton'),
@@ -83,11 +71,6 @@ const buttons = [
 ];
 
 export function afterConnect() {
-    ipAddressInput.classList.remove('disconnected');
-    ipAddressInput.classList.add('connected');
-    portInput.classList.remove('disconnected');
-    portInput.classList.add('connected');
-    
     connectButton.disabled = true;
     disconnectButton.disabled = false;
 
@@ -101,16 +84,26 @@ export function afterConnect() {
         afterRoombaTurnedOn(false);
     }
 
-    // Set the video source to the MJPEG stream
-    const ipAddress = ipAddressInput.value;
+    // Get current host for the camera stream
+    const currentHost = window.location.hostname;
+    const protocol = window.location.protocol;
+    const basePath = getBasePath();
+    let streamUrl;
+    
+    // Use the existence of a basePath to determine if we're behind a proxy
+    if (basePath) {
+        // When accessed through reverse proxy
+        streamUrl = `${protocol}//${currentHost}${basePath}stream`;
+    } else {
+        // When accessed directly via ESP32 IP
+        streamUrl = `${protocol}//${currentHost}/stream`;
+    }
+    
     const backgroundImage = document.getElementById('backgroundImage');
-    backgroundImage.src = `http://${ipAddress}`;
-
-    // backgroundImage.style.transform = 'rotate(133deg)';
-    // backgroundImage.style.transformOrigin = 'center';
-
+    backgroundImage.src = streamUrl;
+    
     function updateImage() {
-        backgroundImage.src = `http://${ipAddress}?t=${new Date().getTime()}`; // Add a timestamp to prevent caching
+        backgroundImage.src = `${streamUrl}?t=${new Date().getTime()}`;
     }
 
     backgroundImage.onload = updateImage;
@@ -124,11 +117,6 @@ export function afterConnect() {
 
 export function afterDisconnect() {
     afterRoombaShutdown(false);
-
-    ipAddressInput.classList.remove('connected');
-    ipAddressInput.classList.add('disconnected');
-    portInput.classList.remove('connected');
-    portInput.classList.add('disconnected');
     
     connectButton.disabled = false;
     disconnectButton.disabled = true;
@@ -191,6 +179,28 @@ export function toggleRoombaDataPause(pause) {
         sendCommand(CommandCode.PAUSE_RESUME_STREAM, 1);
         state.paused = false;
     }
+}
+
+export function getBasePath() {
+    // Get the path from the current URL
+    const path = window.location.pathname;
+    
+    // If path is just "/" or empty, we're at root
+    if (path === "/" || path === "") {
+        return "";
+    }
+    
+    // If path ends with a filename (like index.html), get the directory
+    if (path.includes('.')) {
+        return path.substring(0, path.lastIndexOf('/') + 1);
+    }
+    
+    // If path doesn't end with a slash, add one
+    if (!path.endsWith('/')) {
+        return path + '/';
+    }
+    
+    return path;
 }
 
 function toggleMenu() {

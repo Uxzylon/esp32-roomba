@@ -1,5 +1,5 @@
 
-import { afterConnect, afterDisconnect, afterRoombaTurnedOn, state } from "./main.js";
+import { afterConnect, afterDisconnect, afterRoombaTurnedOn, state, getBasePath } from "./main.js";
 export let ws;
 export let ipAddress;
 export let port;
@@ -9,13 +9,25 @@ const roombaDataSensorsElements = document.getElementsByClassName("roombaData-se
 const roombaDataQueryElements = document.getElementsByClassName("roombaData-query_list");
 
 export function connectWebSocket() {
-    ipAddress = document.getElementById('ipAddress').value;
-    localStorage.setItem('ipAddress', ipAddress);
-    port = document.getElementById('port').value || 81;
-    if (port != 81) {
-        localStorage.setItem('port', port);
+    const currentHost = window.location.hostname;
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    
+    const basePath = getBasePath();
+    
+    let wsPath;
+    
+    // Use the existence of a basePath to determine if we're behind a proxy
+    if (basePath) {
+        // Using reverse proxy
+        wsPath = `${wsProtocol}//${currentHost}${basePath}ws`;
+    } else {
+        // Direct access to ESP32 using port 81 for WebSockets
+        port = 81; // WebSocket port
+        wsPath = `${wsProtocol}//${currentHost}:${port}`;
     }
-    ws = new WebSocket('ws://' + ipAddress + ':' + port);
+    
+    console.log(`Connecting to WebSocket at: ${wsPath}`);
+    ws = new WebSocket(wsPath);
 
     ws.onopen = function() {
         console.log('WebSocket connection opened');

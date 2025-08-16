@@ -15,8 +15,10 @@
 #include "commandOpcodeEnum.h"
 #include <ArduinoOTA.h>
 #include "esp32/spiram.h"
+#include "SPIFFS.h"
 
 #define PART_BOUNDARY "123456789000000000000987654321"
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 HardwareSerial mySerial(1);
 
@@ -159,28 +161,153 @@ static esp_err_t stream_handler(httpd_req_t *req){
     return res;
 }
 
+/* Set HTTP response content type according to file extension */
+static esp_err_t set_content_type_from_file(httpd_req_t *req, const char *filename)
+{
+    if (strstr(filename, ".html")) {
+        return httpd_resp_set_type(req, "text/html");
+    } else if (strstr(filename, ".css")) {
+        return httpd_resp_set_type(req, "text/css");
+    } else if (strstr(filename, ".js")) {
+        return httpd_resp_set_type(req, "application/javascript");
+    } else if (strstr(filename, ".ico")) {
+        return httpd_resp_set_type(req, "image/x-icon");
+    } else if (strstr(filename, ".jpg") || strstr(filename, ".jpeg")) {
+        return httpd_resp_set_type(req, "image/jpeg");
+    } else if (strstr(filename, ".png")) {
+        return httpd_resp_set_type(req, "image/png");
+    }
+    return httpd_resp_set_type(req, "text/plain");
+}
+
+/* Get path from URI and extract filename */
+static const char* get_path_from_uri(char *dest, const char *uri, size_t destsize)
+{
+    size_t pathlen = strlen(uri);
+    
+    // Remove query parameters if present
+    const char *quest = strchr(uri, '?');
+    if (quest) {
+        pathlen = MIN(pathlen, quest - uri);
+    }
+    
+    // Make sure path starts with a slash
+    if (pathlen > 0 && uri[0] != '/') {
+        dest[0] = '/';
+        strlcpy(dest + 1, uri, MIN(pathlen + 1, destsize - 1));
+    } else {
+        strlcpy(dest, uri, MIN(pathlen + 1, destsize));
+    }
+    
+    // Use root path for "/"
+    if (strcmp(dest, "/") == 0) {
+        strcpy(dest, "/index.html");
+    }
+    
+    Serial.print("Path from URI: ");
+    Serial.println(dest);
+    return dest;
+}
+
+/* Handler for serving files from SPIFFS */
+static esp_err_t web_handler(httpd_req_t *req)
+{
+    char filepath[128];
+    
+    // Get the requested file path
+    get_path_from_uri(filepath, req->uri, sizeof(filepath));
+    
+    Serial.print("Web request: ");
+    Serial.println(filepath);
+    
+    // Try opening the file
+    File file = SPIFFS.open(filepath, "r");
+    
+    // If file not found, try stripping directories and using just the filename
+    // if (!file) {
+    //     int lastSlash = String(filepath).lastIndexOf('/');
+    //     if (lastSlash >= 0) {
+    //         String fileName = "/" + String(filepath).substring(lastSlash + 1);
+    //         Serial.print("File not found. Trying with just filename: ");
+    //         Serial.println(fileName);
+    //         file = SPIFFS.open(fileName, "r");
+    //     }
+        
+    //     // If still not found, return 404
+    //     if (!file) {
+    //         Serial.println("File not found, sending 404");
+    //         httpd_resp_send_404(req);
+    //         return ESP_FAIL;
+    //     }
+    // }
+    
+    Serial.print("Serving file: ");
+    Serial.print(file.name());
+    Serial.print(" (");
+    Serial.print(file.size());
+    Serial.println(" bytes)");
+    
+    // Set content type based on file extension
+    set_content_type_from_file(req, filepath);
+    
+    // Set CORS header
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    
+    // Send file in chunks
+    const size_t CHUNK_SIZE = 1024;
+    uint8_t buffer[CHUNK_SIZE];
+    size_t bytesRead;
+    
+    while ((bytesRead = file.read(buffer, CHUNK_SIZE)) > 0) {
+        if (httpd_resp_send_chunk(req, (const char*)buffer, bytesRead) != ESP_OK) {
+            file.close();
+            return ESP_FAIL;
+        }
+    }
+    
+    // Send empty chunk to signal HTTP response completion
+    httpd_resp_send_chunk(req, NULL, 0);
+    file.close();
+    return ESP_OK;
+}
+
 void startCameraServer()
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 16;
-    #ifdef CAMERA_VIEW_PORT
-        config.server_port = CAMERA_VIEW_PORT;
+    config.lru_purge_enable = true; // Enable LRU algorithm for socket purging
+    config.uri_match_fn = httpd_uri_match_wildcard;
+    
+    #ifdef HTTP_PORT
+        config.server_port = HTTP_PORT;
     #else
         config.server_port = 80;
     #endif
 
-    httpd_uri_t index_uri = {
-        .uri = "/",
+    // Start the httpd server
+    if (httpd_start(&stream_httpd, &config) != ESP_OK) {
+        Serial.println("Failed to start HTTP server");
+        return;
+    }
+    
+    Serial.println("HTTP server started");
+    
+    // Camera stream handler
+    httpd_uri_t stream_uri = {
+        .uri = "/stream",
         .method = HTTP_GET,
         .handler = stream_handler,
         .user_ctx = NULL
     };
-
-    // Serial.printf("Starting web server on port: '%d'\n", config.server_port);
-    if (httpd_start(&stream_httpd, &config) == ESP_OK)
-    {
-        httpd_register_uri_handler(stream_httpd, &index_uri);
-    }
+    httpd_register_uri_handler(stream_httpd, &stream_uri);
+    
+    httpd_uri_t file_download = {
+        .uri = "/*",  // Match all URIs
+        .method = HTTP_GET,
+        .handler = web_handler,
+        .user_ctx = NULL
+    };
+    httpd_register_uri_handler(stream_httpd, &file_download);
 }
 
 int parseCommandParameters(String command, int *dataBytes, int maxParams)
@@ -1047,6 +1174,13 @@ void setup()
         s->set_saturation(s, 0);
         s->set_brightness(s, 0);
         s->set_lenc(s, 0); // Lens correction
+    }
+
+    if(!SPIFFS.begin(true)) {
+        Serial.println("ERROR: SPIFFS mount failed");
+        return;
+    } else {
+        Serial.println("SPIFFS mounted successfully");
     }
 
     // Wi-Fi connection
