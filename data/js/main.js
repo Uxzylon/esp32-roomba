@@ -11,7 +11,26 @@ export const state = {
 
 let streamInterval;
 
+const ipAddressInput = document.getElementById('ipAddress');
+const portInput = document.getElementById('port');
+
+const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
 document.addEventListener('DOMContentLoaded', function() {
+    if (isLocalhost) {
+        document.body.classList.add('is-localhost');
+        
+        let savedIpAddress = localStorage.getItem('ipAddress');
+        if (savedIpAddress) {
+            ipAddressInput.value = savedIpAddress;
+        }
+        
+        let savedPort = localStorage.getItem('port');
+        if (savedPort) {
+            portInput.value = savedPort;
+        }
+    }
+
     const joystickLeft = document.getElementById('joystickLeft');
     const joystickRight = document.getElementById('joystickRight');
     const joystickLeftHandle = joystickLeft.querySelector('.joystick-handle');
@@ -77,6 +96,13 @@ export function afterConnect() {
     startButton.disabled = false;
     shutdownButton.disabled = true;
 
+    if (isLocalhost) {
+        ipAddressInput.classList.remove('disconnected');
+        ipAddressInput.classList.add('connected');
+        portInput.classList.remove('disconnected');
+        portInput.classList.add('connected');
+    }
+
     if (!state.paused) {
         stream(...defaultStreamPackets);
         toggleRoombaDataPause(false);
@@ -84,11 +110,10 @@ export function afterConnect() {
         afterRoombaTurnedOn(false);
     }
 
-    // Get current host for the camera stream
     const currentHost = window.location.hostname;
     const protocol = window.location.protocol;
 
-    const streamUrl = `${protocol}//${currentHost}${getBasePath()}/stream`;
+    const streamUrl = `${protocol}//${getBasePath(currentHost)}/stream`;
     
     const backgroundImage = document.getElementById('backgroundImage');
     backgroundImage.src = streamUrl;
@@ -109,6 +134,13 @@ export function afterDisconnect() {
 
     startButton.disabled = true;
     shutdownButton.disabled = true;
+
+    if (isLocalhost) {
+        ipAddressInput.classList.remove('connected');
+        ipAddressInput.classList.add('disconnected');
+        portInput.classList.remove('connected');
+        portInput.classList.add('disconnected');
+    }
 
     // Clear the image source and stop the interval
     const backgroundImage = document.getElementById('backgroundImage');
@@ -167,13 +199,21 @@ export function toggleRoombaDataPause(pause) {
     }
 }
 
-export function getBasePath() {
+export function getBasePath(hostname) {
+    if (isLocalhost) {
+        const ipAddress = document.getElementById('ipAddress').value || "192.168.254.254";
+        const port = document.getElementById('port').value || 80;
+        hostname = `${ipAddress}:${port}`;
+        localStorage.setItem('ipAddress', ipAddress);
+        localStorage.setItem('port', port);
+    }
+
     // Get the path from the current URL
     let path = window.location.pathname;
 
     // If path is just "/" or empty, we're at root
-    if (path === "/" || path === "") {
-        return "";
+    if (path === "/" || path === "" || isLocalhost) {
+        return `${hostname}`;
     }
 
     // If path ends with a filename (like index.html), get the directory
@@ -186,7 +226,7 @@ export function getBasePath() {
         path = path.slice(0, -1);
     }
 
-    return path;
+    return `${hostname}${path}`;
 }
 
 function toggleMenu() {

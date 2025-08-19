@@ -12,7 +12,7 @@ export function connectWebSocket() {
     const currentHost = window.location.hostname;
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     
-    const wsPath = `${wsProtocol}//${currentHost}${getBasePath()}/ws`;
+    const wsPath = `${wsProtocol}//${getBasePath(currentHost)}/ws`;
     
     console.log(`Connecting to WebSocket at: ${wsPath}`);
     ws = new WebSocket(wsPath);
