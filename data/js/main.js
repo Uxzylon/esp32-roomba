@@ -87,17 +87,8 @@ export function afterConnect() {
     // Get current host for the camera stream
     const currentHost = window.location.hostname;
     const protocol = window.location.protocol;
-    const basePath = getBasePath();
-    let streamUrl;
-    
-    // Use the existence of a basePath to determine if we're behind a proxy
-    if (basePath) {
-        // When accessed through reverse proxy
-        streamUrl = `${protocol}//${currentHost}${basePath}stream`;
-    } else {
-        // When accessed directly via ESP32 IP
-        streamUrl = `${protocol}//${currentHost}/stream`;
-    }
+
+    const streamUrl = `${protocol}//${currentHost}${getBasePath()}/stream`;
     
     const backgroundImage = document.getElementById('backgroundImage');
     backgroundImage.src = streamUrl;
@@ -108,11 +99,6 @@ export function afterConnect() {
 
     backgroundImage.onload = updateImage;
     updateImage();
-
-    // Update the image source periodically to fetch new frames
-    // streamInterval = setInterval((backgroundImage) => {
-    //     backgroundImage.src = `http://${ipAddress}`;
-    // }, 1000, backgroundImage);
 }
 
 export function afterDisconnect() {
@@ -183,23 +169,23 @@ export function toggleRoombaDataPause(pause) {
 
 export function getBasePath() {
     // Get the path from the current URL
-    const path = window.location.pathname;
-    
+    let path = window.location.pathname;
+
     // If path is just "/" or empty, we're at root
     if (path === "/" || path === "") {
         return "";
     }
-    
+
     // If path ends with a filename (like index.html), get the directory
     if (path.includes('.')) {
-        return path.substring(0, path.lastIndexOf('/') + 1);
+        path = path.substring(0, path.lastIndexOf('/'));
     }
-    
-    // If path doesn't end with a slash, add one
-    if (!path.endsWith('/')) {
-        return path + '/';
+
+    // Remove trailing slash if present
+    if (path.endsWith('/')) {
+        path = path.slice(0, -1);
     }
-    
+
     return path;
 }
 

@@ -12,19 +12,7 @@ export function connectWebSocket() {
     const currentHost = window.location.hostname;
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     
-    const basePath = getBasePath();
-    
-    let wsPath;
-    
-    // Use the existence of a basePath to determine if we're behind a proxy
-    if (basePath) {
-        // Using reverse proxy
-        wsPath = `${wsProtocol}//${currentHost}${basePath}ws`;
-    } else {
-        // Direct access to ESP32 using port 81 for WebSockets
-        port = 81; // WebSocket port
-        wsPath = `${wsProtocol}//${currentHost}:${port}`;
-    }
+    const wsPath = `${wsProtocol}//${currentHost}${getBasePath()}/ws`;
     
     console.log(`Connecting to WebSocket at: ${wsPath}`);
     ws = new WebSocket(wsPath);
@@ -64,7 +52,9 @@ function displayRoombaData(data) {
     text = text.substring(1, text.length - 1);
     text = text.substring(text.indexOf('\n') + 1);
 
-    if ((!state.roombaTurnedOn && !state.paused) || (state.roombaTurnedOn && !state.paused)) {
+    const needUpdate = (!state.roombaTurnedOn && !state.paused) || (state.roombaTurnedOn && !state.paused);
+
+    if (needUpdate && jsonData.data.charging_state !== 2) {
         afterRoombaTurnedOn();
     }
 
