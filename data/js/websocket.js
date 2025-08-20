@@ -1,5 +1,6 @@
 
 import { afterConnect, afterDisconnect, afterRoombaTurnedOn, state, getBasePath } from "./main.js";
+import { formatSensorValue } from "./sensors.js";
 export let ws;
 export let ipAddress;
 export let port;
@@ -47,15 +48,20 @@ export function sendWSCommand(command) {
 
 function displayRoombaData(data) {
     let jsonData = JSON.parse(data);
-    let text = JSON.stringify(jsonData.data, null, 2);
-    text = text.replace(/  /g, '');
-    text = text.substring(1, text.length - 1);
-    text = text.substring(text.indexOf('\n') + 1);
-
     const needUpdate = (!state.roombaTurnedOn && !state.paused) || (state.roombaTurnedOn && !state.paused);
 
-    if (needUpdate && jsonData.data.charging_state !== 2) {
+    if (needUpdate && (jsonData.data.oi_mode === 2 || jsonData.data.oi_mode === 3)) {
         afterRoombaTurnedOn();
+    }
+
+    const formattedData = {};
+    for (const [sensorName, rawValue] of Object.entries(jsonData.data)) {
+        formattedData[sensorName] = formatSensorValue(sensorName, rawValue);
+    }
+
+    let formattedText = '';
+    for (const [sensorName, formattedValue] of Object.entries(formattedData)) {
+        formattedText += `"${sensorName}": ${formattedValue}\n`;
     }
 
     let elements;
@@ -71,6 +77,6 @@ function displayRoombaData(data) {
     }
 
     for (let i = 0; i < elements.length; i++) {
-        elements[i].textContent = text;
+        elements[i].textContent = formattedText;
     }
 }

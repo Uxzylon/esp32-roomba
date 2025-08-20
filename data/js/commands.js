@@ -411,21 +411,54 @@ export const musicNotes = {
 
 export const defaultStreamPackets = [
     SensorPacketId.BUMPS_AND_WHEEL_DROPS,
-    SensorPacketId.DISTANCE,
-    SensorPacketId.ANGLE,
+    SensorPacketId.WALL,
+    SensorPacketId.CLIFF_LEFT,
+    SensorPacketId.CLIFF_FRONT_LEFT,
+    SensorPacketId.CLIFF_FRONT_RIGHT,
+    SensorPacketId.CLIFF_RIGHT,
+    SensorPacketId.VIRTUAL_WALL,
+    SensorPacketId.WHEEL_OVERCURRENTS,
+    SensorPacketId.DIRT_DETECT,
+    SensorPacketId.INFRARED_CHARACTER_OMNI,
+    SensorPacketId.INFRARED_CHARACTER_LEFT,
+    SensorPacketId.INFRARED_CHARACTER_RIGHT,
+    SensorPacketId.BUTTONS_SENSOR,
+    // SensorPacketId.DISTANCE,
+    // SensorPacketId.ANGLE,
     SensorPacketId.CHARGING_STATE,
+    SensorPacketId.VOLTAGE,
     SensorPacketId.CURRENT,
     SensorPacketId.TEMPERATURE,
     SensorPacketId.BATTERY_CHARGE,
     SensorPacketId.BATTERY_CAPACITY,
+    SensorPacketId.WALL_SIGNAL,
+    SensorPacketId.CLIFF_LEFT_SIGNAL,
+    SensorPacketId.CLIFF_FRONT_LEFT_SIGNAL,
+    SensorPacketId.CLIFF_FRONT_RIGHT_SIGNAL,
+    SensorPacketId.CLIFF_RIGHT_SIGNAL,
+    SensorPacketId.CHARGING_SOURCES_AVAILABLE,
     SensorPacketId.OI_MODE,
     SensorPacketId.SONG_NUMBER,
     SensorPacketId.SONG_PLAYING,
+    // SensorPacketId.NUMBER_OF_STREAM_PACKETS,
+    // SensorPacketId.REQUESTED_VELOCITY,
+    // SensorPacketId.REQUESTED_RADIUS,
+    // SensorPacketId.REQUESTED_RIGHT_VELOCITY,
+    // SensorPacketId.REQUESTED_LEFT_VELOCITY,
+    // SensorPacketId.LEFT_ENCODER_COUNTS,
+    // SensorPacketId.RIGHT_ENCODER_COUNTS,
     SensorPacketId.LIGHT_BUMPER,
+    SensorPacketId.LIGHT_BUMP_LEFT_SIGNAL,
+    SensorPacketId.LIGHT_BUMP_FRONT_LEFT_SIGNAL,
+    SensorPacketId.LIGHT_BUMP_CENTER_LEFT_SIGNAL,
+    SensorPacketId.LIGHT_BUMP_CENTER_RIGHT_SIGNAL,
+    SensorPacketId.LIGHT_BUMP_FRONT_RIGHT_SIGNAL,
+    SensorPacketId.LIGHT_BUMP_RIGHT_SIGNAL,
     SensorPacketId.LEFT_MOTOR_CURRENT,
     SensorPacketId.RIGHT_MOTOR_CURRENT,
     SensorPacketId.MAIN_BRUSH_MOTOR_CURRENT,
-    SensorPacketId.SIDE_BRUSH_MOTOR_CURRENT
+    SensorPacketId.SIDE_BRUSH_MOTOR_CURRENT,
+    SensorPacketId.STASIS,
 ];
 
 export function sendCommand(commandCode, ...args) {
@@ -444,6 +477,7 @@ export function startRoomba() {
     if (!state.paused && !state.roombaTurnedOn) {
         setTimeout(() => {
             stream(...defaultStreamPackets);
+            ledFull();
             toggleRoombaDataPause(false);
         }, 1500);
     } else {
@@ -466,4 +500,8 @@ export function shutdownRoomba() {
 
 export function stream(...sensorPacketIds) {
     sendCommand(CommandCode.STREAM, sensorPacketIds.length, ...sensorPacketIds);
+}
+
+function ledFull() {
+    sendCommand("digit_leds_raw", 0, 26, 44, 0);
 }
