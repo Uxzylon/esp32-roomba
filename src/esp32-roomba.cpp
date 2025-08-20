@@ -660,10 +660,10 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType)
             jsonData += "\"buttons\":" + String(sensorData[0]) + ",";
             break;
         case DISTANCE:
-            jsonData += "\"distance\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
+            jsonData += "\"distance\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
             break;
         case ANGLE:
-            jsonData += "\"angle\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
+            jsonData += "\"angle\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
             break;
         case CHARGING_STATE:
             jsonData += "\"charging_state\":" + String(sensorData[0]) + ",";
@@ -672,10 +672,10 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType)
             jsonData += "\"voltage\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
             break;
         case CURRENT:
-            jsonData += "\"current\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
+            jsonData += "\"current\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
             break;
         case TEMPERATURE:
-            jsonData += "\"temperature\":" + String(sensorData[0]) + ",";
+            jsonData += "\"temperature\":" + String((int8_t)(sensorData[0])) + ",";
             break;
         case BATTERY_CHARGE:
             jsonData += "\"battery_charge\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
@@ -715,16 +715,16 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType)
             jsonData += "\"number_of_stream_packets\":" + String(sensorData[0]) + ",";
             break;
         case REQUESTED_VELOCITY:
-            jsonData += "\"requested_velocity\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
+            jsonData += "\"requested_velocity\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
             break;
         case REQUESTED_RADIUS:
-            jsonData += "\"requested_radius\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
+            jsonData += "\"requested_radius\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
             break;
         case REQUESTED_RIGHT_VELOCITY:
-            jsonData += "\"requested_right_velocity\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
+            jsonData += "\"requested_right_velocity\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
             break;
         case REQUESTED_LEFT_VELOCITY:
-            jsonData += "\"requested_left_velocity\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
+            jsonData += "\"requested_left_velocity\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
             break;
         case LEFT_ENCODER_COUNTS:
             jsonData += "\"left_encoder_counts\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
@@ -760,16 +760,16 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType)
             jsonData += "\"infrared_character_right\":" + String(sensorData[0]) + ",";
             break;
         case LEFT_MOTOR_CURRENT:
-            jsonData += "\"left_motor_current\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
+            jsonData += "\"left_motor_current\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
             break;
         case RIGHT_MOTOR_CURRENT:
-            jsonData += "\"right_motor_current\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
+            jsonData += "\"right_motor_current\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
             break;
         case MAIN_BRUSH_MOTOR_CURRENT:
-            jsonData += "\"main_brush_motor_current\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
+            jsonData += "\"main_brush_motor_current\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
             break;
         case SIDE_BRUSH_MOTOR_CURRENT:
-            jsonData += "\"side_brush_motor_current\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
+            jsonData += "\"side_brush_motor_current\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
             break;
         case STASIS:
             jsonData += "\"stasis\":" + String(sensorData[0]) + ",";
