@@ -35,7 +35,8 @@ export const CommandCode = {
     SET_DAY_TIME: "set_day_time",
     STOP: "stop",
     WAKEUP: "wakeup", // Custom commands
-    STREAM_SONG: "stream_song"
+    STREAM_SONG: "stream_song",
+    RESET_ESP32: "reset_esp32"
 };
 
 const CommandInfo = {
@@ -302,7 +303,8 @@ const CommandInfo = {
                 }
             }
         }
-    }
+    },
+    reset_esp32: { opcode: 202, dataBytes: 0 }
 };
 
 export function getCommandOpcode(commandCode) {

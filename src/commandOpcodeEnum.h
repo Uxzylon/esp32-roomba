@@ -35,7 +35,8 @@ enum CommandOpcode {
     SET_DAY_TIME = 168,
     STOP = 173,
     WAKEUP = 200, // Custom command
-    STREAM_SONG = 201 // Custom command
+    STREAM_SONG = 201, // Custom command
+    RESET_ESP32 = 202 // Custom command
 };
 
 struct CommandMapping {
@@ -75,7 +76,8 @@ const CommandMapping commandMap[] = {
     {"set_day_time", SET_DAY_TIME, 3},
     {"stop", STOP, 0},
     {"wakeup", WAKEUP, 0},
-    {"stream_song", STREAM_SONG, -4} // 2N+1 bytes
+    {"stream_song", STREAM_SONG, -4}, // 2N+1 bytes
+    {"reset_esp32", RESET_ESP32, 0}
 };
 
 CommandOpcode getOpcodeByName(const String& name) {
