@@ -112,18 +112,6 @@ export function afterConnect() {
 
     const currentHost = window.location.hostname;
     const protocol = window.location.protocol;
-
-    const streamUrl = `${protocol}//${getBasePath(currentHost)}/stream`;
-    
-    const backgroundImage = document.getElementById('backgroundImage');
-    backgroundImage.src = streamUrl;
-    
-    function updateImage() {
-        backgroundImage.src = `${streamUrl}?t=${new Date().getTime()}`;
-    }
-
-    backgroundImage.onload = updateImage;
-    updateImage();
 }
 
 export function afterDisconnect() {
@@ -199,7 +187,7 @@ export function toggleRoombaDataPause(pause) {
     }
 }
 
-export function getBasePath(hostname) {
+export function getHostname(hostname) {
     if (isLocalhost) {
         const ipAddress = document.getElementById('ipAddress').value || "192.168.254.254";
         const port = document.getElementById('port').value || 80;
@@ -207,26 +195,7 @@ export function getBasePath(hostname) {
         localStorage.setItem('ipAddress', ipAddress);
         localStorage.setItem('port', port);
     }
-
-    // Get the path from the current URL
-    let path = window.location.pathname;
-
-    // If path is just "/" or empty, we're at root
-    if (path === "/" || path === "" || isLocalhost) {
-        return `${hostname}`;
-    }
-
-    // If path ends with a filename (like index.html), get the directory
-    if (path.includes('.')) {
-        path = path.substring(0, path.lastIndexOf('/'));
-    }
-
-    // Remove trailing slash if present
-    if (path.endsWith('/')) {
-        path = path.slice(0, -1);
-    }
-
-    return `${hostname}${path}`;
+    return hostname;
 }
 
 function toggleMenu() {

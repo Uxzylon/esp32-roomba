@@ -71,3 +71,30 @@ Your ESP32 should now be running the Roomba control firmware with the required f
 Connect to the ESP32 WiFi network, open a web browser and navigate to `http://<ESP32_IP_ADDRESS>` to access the Roomba control interface.
 
 Press the Connect button to establish a connection to the ESP32 websocket and camera feed. Then press the Wakeup button to wake up the Roomba.
+
+## Reverse Proxy Configuration (Optional)
+
+If you want to access the Roomba control interface through a reverse proxy, you can use Nginx or Apache as a reverse proxy server. Here is a basic example of how to configure Nginx:
+
+```nginx
+server {
+    listen 80;
+
+    location /esp32-roomba/ {
+        auth_basic "Restricted Access"; auth_basic_user_file /etc/nginx/.htpasswd;
+        proxy_pass http://<ESP32_IP_ADDRESS>:80/;
+        proxy_set_header Host $host; proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade"; proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffering off; proxy_read_timeout 86400s; proxy_http_version 1.1;
+        proxy_hide_header X-ESP32;
+    }
+
+    location /esp32-roomba/ws {
+        auth_basic "Restricted Access"; auth_basic_user_file /etc/nginx/.htpasswd;
+        proxy_pass http://<ESP32_IP_ADDRESS>:81/;
+        proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host; proxy_buffering off; proxy_read_timeout 86400s;
+        proxy_http_version 1.1;
+    }
+}
+```
