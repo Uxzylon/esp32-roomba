@@ -5,7 +5,7 @@
 #include "Arduino.h"
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
-#include <WebServer.h>
+#include "esp_http_server.h"
 #include <WebSocketsServer.h>
 #include <HardwareSerial.h>
 #include "config.h"
@@ -31,7 +31,7 @@ const int websocketPort = WEBSOCKET_PORT;
 const int websocketPort = 81;
 #endif
 
-WebServer server(port);
+httpd_handle_t httpServer = NULL;
 WebSocketsServer webSocket = WebSocketsServer(websocketPort);
 
 HardwareSerial mySerial(1);
@@ -65,9 +65,15 @@ const int currentStreamSensorsSize = 59;
 SensorPacketId currentStreamSensors[currentStreamSensorsSize];
 
 bool isStreamingOverWS = false;
-unsigned long lastFrameSentTime = 0; 
+unsigned long lastFrameSentTime = 0;
 const int WS_STREAM_FPS = 10;
 static int64_t last_ws_frame = 0;
+
+#define PART_BOUNDARY "123456789000000000000987654321"
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+static const char *STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
+static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
+static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
 void setupSerial(int newBaudRate)
 {
@@ -749,24 +755,30 @@ void readDataFromRoomba()
     }
 }
 
-bool initPSRAM() {
-    if (!psramInit() || !psramFound()) {
+bool initPSRAM()
+{
+    if (!psramInit() || !psramFound())
+    {
         return false;
     }
 
     const size_t testSize = 14316;
-    uint8_t* testMem = (uint8_t*)ps_malloc(testSize);
-    if (!testMem) {
+    uint8_t *testMem = (uint8_t *)ps_malloc(testSize);
+    if (!testMem)
+    {
         return false;
     }
 
-    for (size_t i = 0; i < testSize; i++) {
+    for (size_t i = 0; i < testSize; i++)
+    {
         testMem[i] = i & 0xFF;
     }
 
     bool testPassed = true;
-    for (size_t i = 0; i < testSize; i++) {
-        if (testMem[i] != (i & 0xFF)) {
+    for (size_t i = 0; i < testSize; i++)
+    {
+        if (testMem[i] != (i & 0xFF))
+        {
             testPassed = false;
             break;
         }
@@ -781,228 +793,302 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 {
     switch (type)
     {
-        case WStype_CONNECTED:
+    case WStype_CONNECTED:
+    {
+        IPAddress ip = webSocket.remoteIP(num);
+        Serial.printf("[%u] Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
+        isStreamingOverWS = true;
+        break;
+    }
+    case WStype_DISCONNECTED:
+    {
+        Serial.printf("[%u] Disconnected!\n", num);
+        if (webSocket.connectedClients() == 0)
         {
-            IPAddress ip = webSocket.remoteIP(num);
-            Serial.printf("[%u] Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
-            isStreamingOverWS = true;
-            break;
+            isStreamingOverWS = false;
         }
-        case WStype_DISCONNECTED:
+        break;
+    }
+    case WStype_TEXT:
+    {
+        String command = String((char *)payload);
+        String action = command.substring(0, command.indexOf(' '));
+
+        const int maxParams = 1024;
+        int dataBytes[maxParams];
+        int paramCount = parseCommandParameters(command, dataBytes, maxParams);
+
+        CommandOpcode opcode = getOpcodeByName(action);
+
+        if (opcode != static_cast<CommandOpcode>(-1))
         {
-            Serial.printf("[%u] Disconnected!\n", num);
-            if (webSocket.connectedClients() == 0) {
-                isStreamingOverWS = false;
-            }
-            break;
-        }
-        case WStype_TEXT:
-        {
-            String command = String((char *)payload);
-            String action = command.substring(0, command.indexOf(' '));
-
-            const int maxParams = 1024;
-            int dataBytes[maxParams];
-            int paramCount = parseCommandParameters(command, dataBytes, maxParams);
-
-            CommandOpcode opcode = getOpcodeByName(action);
-
-            if (opcode != static_cast<CommandOpcode>(-1))
+            int expectedDataBytes = getDataBytesByOpcode(opcode);
+            if (areDataBytesValid(expectedDataBytes, dataBytes, paramCount))
             {
-                int expectedDataBytes = getDataBytesByOpcode(opcode);
-                if (areDataBytesValid(expectedDataBytes, dataBytes, paramCount))
+                if (opcode == CommandOpcode::WAKEUP)
                 {
-                    if (opcode == CommandOpcode::WAKEUP)
-                    {
-                        wakeUp();
-                    }
-                    else if (opcode == CommandOpcode::BAUD)
-                    {
-                        baud(static_cast<BaudRate>(dataBytes[0]));
-                    }
-                    else if (opcode == CommandOpcode::PAUSE_RESUME_STREAM)
-                    {
-                        bool pause = dataBytes[0] == 0;
-                        pauseStream(pause);
-                        delay(500);
-                        streamPaused = pause;
-                    }
-                    else if (opcode == CommandOpcode::STREAM_SONG)
-                    {
-                        handleStreamSongCommand(dataBytes, paramCount);
-                    }
-                    else
-                    {
-                        if (opcode == CommandOpcode::SENSORS || opcode == CommandOpcode::QUERY_LIST)
-                        {
-                            pauseStream(true);
-                            delay(500);
-                            storeRequestedSensorPackets(dataBytes, paramCount, opcode);
-                            clearSerialBuffer();
-                        }
-                        runCommand(static_cast<byte>(opcode), dataBytes, paramCount);
-                    }
+                    wakeUp();
+                }
+                else if (opcode == CommandOpcode::BAUD)
+                {
+                    baud(static_cast<BaudRate>(dataBytes[0]));
+                }
+                else if (opcode == CommandOpcode::PAUSE_RESUME_STREAM)
+                {
+                    bool pause = dataBytes[0] == 0;
+                    pauseStream(pause);
+                    delay(500);
+                    streamPaused = pause;
+                }
+                else if (opcode == CommandOpcode::STREAM_SONG)
+                {
+                    handleStreamSongCommand(dataBytes, paramCount);
                 }
                 else
                 {
-                    Serial.println("Invalid parameters");
+                    if (opcode == CommandOpcode::SENSORS || opcode == CommandOpcode::QUERY_LIST)
+                    {
+                        pauseStream(true);
+                        delay(500);
+                        storeRequestedSensorPackets(dataBytes, paramCount, opcode);
+                        clearSerialBuffer();
+                    }
+                    runCommand(static_cast<byte>(opcode), dataBytes, paramCount);
                 }
             }
             else
             {
-                Serial.println("Invalid command");
+                Serial.println("Invalid parameters");
             }
+        }
+        else
+        {
+            Serial.println("Invalid command");
+        }
+        break;
+    }
+    default:
+    {
+        break;
+    }
+    }
+}
+
+static esp_err_t handleHealthCheck(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "X-ESP32", "true");
+    httpd_resp_send(req, "OK", strlen("OK"));
+    return ESP_OK;
+}
+
+static esp_err_t handleMjpegStream(httpd_req_t *req)
+{
+    camera_fb_t *fb = NULL;
+    esp_err_t res = ESP_OK;
+    size_t _jpg_buf_len = 0;
+    uint8_t *_jpg_buf = NULL;
+    char *part_buf[64];
+#ifdef MIN_FRAME_TIME_MS
+    int minFrameTimeMs = MIN_FRAME_TIME_MS;
+#else
+    int minFrameTimeMs = 0;
+#endif
+
+    static int64_t last_frame = 0;
+    if (!last_frame)
+    {
+        last_frame = esp_timer_get_time();
+    }
+
+    res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
+    if (res != ESP_OK)
+    {
+        Serial.println("STREAM: failed to set HTTP response type");
+        return res;
+    }
+
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+    if (res == ESP_OK)
+    {
+        res = httpd_resp_send_chunk(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY));
+    }
+
+    while (true)
+    {
+        fb = esp_camera_fb_get();
+        if (!fb)
+        {
+            Serial.println("STREAM: failed to acquire frame");
+            res = ESP_FAIL;
+        }
+        else
+        {
+            if (fb->format != PIXFORMAT_JPEG)
+            {
+                Serial.println("STREAM: Non-JPEG frame returned by camera module");
+                res = ESP_FAIL;
+            }
+            else
+            {
+                _jpg_buf_len = fb->len;
+                _jpg_buf = fb->buf;
+            }
+        }
+        if (res == ESP_OK)
+        {
+            size_t hlen = snprintf((char *)part_buf, 64, STREAM_PART, _jpg_buf_len);
+            res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
+        }
+        if (res == ESP_OK)
+        {
+            res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
+        }
+        if (res == ESP_OK)
+        {
+            res = httpd_resp_send_chunk(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY));
+        }
+        if (fb)
+        {
+            esp_camera_fb_return(fb);
+            fb = NULL;
+            _jpg_buf = NULL;
+        }
+        else if (_jpg_buf)
+        {
+            free(_jpg_buf);
+            _jpg_buf = NULL;
+        }
+        if (res != ESP_OK)
+        {
             break;
         }
-        default: {
-            break;
+        int64_t frame_time = esp_timer_get_time() - last_frame;
+        frame_time /= 1000;
+        int32_t frame_delay = (minFrameTimeMs > frame_time) ? minFrameTimeMs - frame_time : 0;
+        delay(frame_delay);
+
+#ifdef DEBUG_CAMERA_STREAM
+        Serial.printf("MJPG: %uB %lldms%s%s [%.1ffps]\r\n",
+                      _jpg_buf_len,
+                      frame_time,
+                      (frame_delay > 0) ? (" (delay: " + String(frame_delay) + "ms)").c_str() : "",
+                      (frame_time > 0) ? "" : "",
+                      (frame_time > 0) ? (1000.0f / (float)frame_time) : 0.0f);
+#endif
+
+        last_frame = esp_timer_get_time();
+    }
+
+    last_frame = 0;
+    return res;
+}
+
+static esp_err_t handleSpiffs(httpd_req_t *req)
+{
+    char filepath[128];
+
+    strncpy(filepath, req->uri, sizeof(filepath) - 1);
+    filepath[sizeof(filepath) - 1] = '\0';
+    if (strcmp(filepath, "/") == 0)
+    {
+        strcpy(filepath, "/index.html");
+    }
+
+    File file = SPIFFS.open(filepath, "r");
+
+    if (strstr(filepath, ".html"))
+    {
+        httpd_resp_set_type(req, "text/html");
+    }
+    else if (strstr(filepath, ".css"))
+    {
+        httpd_resp_set_type(req, "text/css");
+    }
+    else if (strstr(filepath, ".js"))
+    {
+        httpd_resp_set_type(req, "application/javascript");
+    }
+    else if (strstr(filepath, ".ico"))
+    {
+        httpd_resp_set_type(req, "image/x-icon");
+    }
+    else if (strstr(filepath, ".jpg") || strstr(filepath, ".jpeg"))
+    {
+        httpd_resp_set_type(req, "image/jpeg");
+    }
+    else if (strstr(filepath, ".png"))
+    {
+        httpd_resp_set_type(req, "image/png");
+    }
+    else
+    {
+        httpd_resp_set_type(req, "text/plain");
+    }
+
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+    // Send file in chunks
+    const size_t CHUNK_SIZE = 1024;
+    uint8_t buffer[CHUNK_SIZE];
+    size_t bytesRead;
+
+    while ((bytesRead = file.read(buffer, CHUNK_SIZE)) > 0)
+    {
+        if (httpd_resp_send_chunk(req, (const char *)buffer, bytesRead) != ESP_OK)
+        {
+            file.close();
+            return ESP_FAIL;
         }
     }
+
+    // Send empty chunk to signal HTTP response completion
+    httpd_resp_send_chunk(req, NULL, 0);
+    file.close();
+    return ESP_OK;
 }
 
-void sendCameraFrame() {
-    if (!isStreamingOverWS || webSocket.connectedClients() == 0) {
+void startServer()
+{
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.max_uri_handlers = 16;
+    config.lru_purge_enable = true; // Enable LRU algorithm for socket purging
+    config.uri_match_fn = httpd_uri_match_wildcard;
+
+    // Start the httpd server
+    if (httpd_start(&httpServer, &config) != ESP_OK)
+    {
+        Serial.println("Failed to start HTTP server");
         return;
     }
-    
-    // Initialize frame timer if needed
-    if (!last_ws_frame) {
-        last_ws_frame = esp_timer_get_time();
-    }
-    
-    // Calculate time since last frame
-    int64_t current_time = esp_timer_get_time();
-    int64_t frame_time = (current_time - last_ws_frame) / 1000; // Convert to ms
-    
-    // Optional minimum frame time control
-    #ifdef MIN_FRAME_TIME_MS
-        int minFrameTimeMs = MIN_FRAME_TIME_MS;
-    #else
-        int minFrameTimeMs = 1000 / WS_STREAM_FPS;
-    #endif
-    
-    // Skip if we're sending too quickly
-    if (frame_time < minFrameTimeMs) {
-        int32_t wait_time = minFrameTimeMs - frame_time;
-        delay(wait_time);
-        current_time = esp_timer_get_time();
-        frame_time = (current_time - last_ws_frame) / 1000;
-    }
-    
-    // Get a frame from the camera
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) {
-        Serial.println("WSSTREAM: failed to acquire frame");
-        return;
-    }
-    
-    // Verify frame format
-    if (fb->format != PIXFORMAT_JPEG) {
-        Serial.println("WSSTREAM: Non-JPEG frame returned by camera module");
-        esp_camera_fb_return(fb);
-        return;
-    }
-    
-    // Create a JSON header with metadata
-    String header = "{\"type\":\"camera_frame\",\"size\":" + 
-                  String(fb->len) + ",\"width\":" + 
-                  String(fb->width) + ",\"height\":" + 
-                  String(fb->height) + "}";
-    
-    // Send header and binary frame directly
-    bool success = true;
-    webSocket.broadcastTXT(header);
-    webSocket.broadcastBIN(fb->buf, fb->len);
-    
-    // Debug output
-    #ifdef DEBUG_CAMERA_STREAM
-        float fps = (frame_time > 0) ? (1000.0f / (float)frame_time) : 0.0f;
-        Serial.printf("WSSTREAM: %uB %lldms [%.1ffps]\r\n",
-            fb->len,
-            frame_time,
-            fps
-        );
-    #endif
-    
-    // Return the frame buffer to be reused
-    esp_camera_fb_return(fb);
-    
-    // Update timestamp for next frame
-    last_ws_frame = current_time;
-    
-    // If connection was closed or WebSocket disabled, reset timer
-    if (!isStreamingOverWS || webSocket.connectedClients() == 0) {
-        last_ws_frame = 0;
-    }
-}
 
-void handleRoot() {
-    File file = SPIFFS.open("/index.html", "r");
-    if (file) {
-        server.streamFile(file, "text/html");
-        file.close();
-    } else {
-        server.send(404, "text/plain", "File not found");
-    }
-}
+    httpd_uri_t stream_uri = {
+        .uri = "/stream",
+        .method = HTTP_GET,
+        .handler = handleMjpegStream,
+        .user_ctx = NULL};
+    httpd_register_uri_handler(httpServer, &stream_uri);
 
-void handleSnapshot() {
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) {
-        server.send(500, "text/plain", "Camera capture failed");
-        return;
-    }
-    
-    server.sendHeader("Content-Type", "image/jpeg");
-    server.sendHeader("Content-Disposition", "inline; filename=snapshot.jpg");
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send_P(200, "image/jpeg", (const char *)fb->buf, fb->len);
-    
-    esp_camera_fb_return(fb);
-}
+    httpd_uri_t health_check = {
+        .uri = "/healthcheck",
+        .method = HTTP_GET,
+        .handler = handleHealthCheck,
+        .user_ctx = NULL};
+    httpd_register_uri_handler(httpServer, &health_check);
 
-void handleNotFound() {
-    String path = server.uri();
-    if (path.endsWith("/")) {
-        path += "index.html";
-    }
-    
-    String contentType;
-    if (path.endsWith(".html")) contentType = "text/html";
-    else if (path.endsWith(".css")) contentType = "text/css";
-    else if (path.endsWith(".js")) contentType = "application/javascript";
-    else if (path.endsWith(".png")) contentType = "image/png";
-    else if (path.endsWith(".jpg")) contentType = "image/jpeg";
-    else if (path.endsWith(".ico")) contentType = "image/x-icon";
-    else contentType = "text/plain";
-    
-    File file = SPIFFS.open(path, "r");
-    if (file) {
-        server.streamFile(file, contentType);
-        file.close();
-    } else {
-        server.send(404, "text/plain", "File Not Found");
-    }
-}
+    httpd_uri_t file_download = {
+        .uri = "/*",
+        .method = HTTP_GET,
+        .handler = handleSpiffs,
+        .user_ctx = NULL};
+    httpd_register_uri_handler(httpServer, &file_download);
 
-void handleHealthCheck() {
-    server.sendHeader("X-ESP32", "true");
-    server.send(200, "text/plain", "OK");
-}
-
-void startServer() {
-    server.on("/", HTTP_GET, handleRoot);
-    server.on("/snapshot", HTTP_GET, handleSnapshot);
-    server.on("/healthcheck", HTTP_GET, handleHealthCheck);
-
-    server.onNotFound(handleNotFound);
+    Serial.println("HTTP server started on port " + String(port));
 
     webSocket.begin();
     webSocket.onEvent(webSocketEvent);
     Serial.println("WebSocket server started on port " + String(websocketPort));
-
-    server.begin();
-    Serial.println("HTTP server started on port " + String(port));
 }
 
 void setup()
@@ -1019,11 +1105,12 @@ void setup()
     Serial.printf("%s (%d cores %d MHz)\n", ESP.getChipModel(), ESP.getChipCores(), ESP.getCpuFreqMHz());
     Serial.printf("RAM : %d KB\n", ESP.getMinFreeHeap() / 1024);
     Serial.printf("Flash : %d KB\n", ESP.getFlashChipSize() / 1024);
-    
+
     if (initPSRAM())
     {
         Serial.printf("PSRAM : %d KB\n", ESP.getPsramSize() / 1024);
-    } else
+    }
+    else
     {
         Serial.println("PSRAM : Disabled");
     }
@@ -1073,12 +1160,13 @@ void setup()
         Serial.printf("Camera init failed with error 0x%x", err);
     }
 
-    sensor_t * s = esp_camera_sensor_get();
-    if (s) {
+    sensor_t *s = esp_camera_sensor_get();
+    if (s)
+    {
         s->set_framesize(s, config.frame_size);
         s->set_quality(s, config.jpeg_quality);
         s->set_hmirror(s, 1); // Horizontal mirror
-        s->set_vflip(s, 0); // Vertical flip
+        s->set_vflip(s, 0);   // Vertical flip
         s->set_colorbar(s, 0);
         s->set_special_effect(s, 0);
         s->set_whitebal(s, 1);
@@ -1090,10 +1178,13 @@ void setup()
         s->set_lenc(s, 0); // Lens correction
     }
 
-    if(!SPIFFS.begin(true)) {
+    if (!SPIFFS.begin(true))
+    {
         Serial.println("ERROR: SPIFFS mount failed");
         return;
-    } else {
+    }
+    else
+    {
         Serial.println("SPIFFS mounted successfully");
     }
 
@@ -1111,7 +1202,8 @@ void setup()
     startServer();
 
     // OTA setup
-    ArduinoOTA.onStart([]() {
+    ArduinoOTA.onStart([]()
+                       {
         String type;
         if (ArduinoOTA.getCommand() == U_FLASH)
         {
@@ -1122,16 +1214,15 @@ void setup()
             type = "filesystem";
         }
         SPIFFS.end();
-        Serial.println("Start updating " + type);
-    });
-    ArduinoOTA.onEnd([]() {
+        Serial.println("Start updating " + type); });
+    ArduinoOTA.onEnd([]()
+                     {
         Serial.println("\nEnd");
-        ESP.restart();
-    });
-    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-        Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-    });
-    ArduinoOTA.onError([](ota_error_t error) {
+        ESP.restart(); });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
+                          { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); });
+    ArduinoOTA.onError([](ota_error_t error)
+                       {
         Serial.printf("Error[%u]: ", error);
         if (error == OTA_AUTH_ERROR)
         {
@@ -1152,14 +1243,14 @@ void setup()
         else if (error == OTA_END_ERROR)
         {
             Serial.println("End Failed");
-        }
-    });
+        } });
     ArduinoOTA.setTimeout(60000);
     ArduinoOTA.begin();
 }
 
 void loop()
 {
+    webSocket.loop();
     readDataFromRoomba();
 
     if (songHead && millis() - songStartTime >= (currentSongDuration * 0.25) && !isRoombaPlayingSong)
@@ -1168,10 +1259,4 @@ void loop()
     }
 
     ArduinoOTA.handle();
-
-    server.handleClient();
-    webSocket.loop();
-    sendCameraFrame();
-
-    yield();
 }

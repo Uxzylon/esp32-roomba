@@ -112,6 +112,19 @@ export function afterConnect() {
 
     const currentHost = window.location.hostname;
     const protocol = window.location.protocol;
+
+    const basePath = getHostname(currentHost).replace(/:\d+$/, '');
+    const streamUrl = `${protocol}//${basePath}/stream`;
+    
+    const backgroundImage = document.getElementById('backgroundImage');
+    backgroundImage.src = streamUrl;
+    
+    function updateImage() {
+        backgroundImage.src = `${streamUrl}?t=${new Date().getTime()}`;
+    }
+
+    backgroundImage.onload = updateImage;
+    updateImage();
 }
 
 export function afterDisconnect() {

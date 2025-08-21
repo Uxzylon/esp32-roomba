@@ -78,22 +78,8 @@ function initWebSocketConnection(wsPath) {
     };
 
     ws.onmessage = function(event) {
-        if (event.data instanceof Blob) {
-            handleCameraFrame(event.data);
-            return;
-        }
-        
-        // Handle text messages (sensor data or frame metadata)
         try {
             const jsonData = JSON.parse(event.data);
-            
-            // Check if this is camera frame metadata
-            if (jsonData.type === "camera_frame") {
-                // This is just the header, the binary data will follow
-                return;
-            }
-            
-            // Otherwise it's normal sensor data
             displayRoombaData(event.data);
         } catch (e) {
             console.error("Error parsing WebSocket message:", e);
@@ -157,23 +143,4 @@ function displayRoombaData(data) {
     for (let i = 0; i < elements.length; i++) {
         elements[i].textContent = formattedText;
     }
-}
-
-function handleCameraFrame(binaryData) {
-    const backgroundImage = document.getElementById('backgroundImage');
-    if (!backgroundImage) return;
-    
-    // Convert binary data to object URL
-    const blob = new Blob([binaryData], { type: 'image/jpeg' });
-    const url = URL.createObjectURL(blob);
-    
-    // Update the image
-    const oldUrl = backgroundImage.src;
-    backgroundImage.onload = function() {
-        // Clean up the old object URL after the new one loads
-        if (oldUrl.startsWith('blob:')) {
-            URL.revokeObjectURL(oldUrl);
-        }
-    };
-    backgroundImage.src = url;
 }
