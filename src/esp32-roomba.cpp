@@ -1,23 +1,22 @@
-#include "esp_camera.h"
-#include <WiFi.h>
-#include "esp_timer.h"
-#include "img_converters.h"
-#include "Arduino.h"
-#include "soc/soc.h"
-#include "soc/rtc_cntl_reg.h"
-#include "esp_http_server.h"
-#include <WebSocketsServer.h>
-#include <HardwareSerial.h>
-#include "config.h"
-#include "baudRateEnum.h"
-#include "sensorPackets.h"
-#include "commandOpcodeEnum.h"
 #include <ArduinoOTA.h>
-#include "esp32/spiram.h"
+#include <HardwareSerial.h>
+#include <WiFi.h>
+#include <WebSocketsServer.h>
+#include "Arduino.h"
 #include "SPIFFS.h"
+#include "baudRateEnum.h"
+#include "commandOpcodeEnum.h"
+#include "config.h"
+#include "esp32/spiram.h"
+#include "esp_camera.h"
+#include "esp_http_server.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include <ArduinoJson.h>
+#include "img_converters.h"
+#include "sensorPackets.h"
+#include "soc/rtc_cntl_reg.h"
+#include "soc/soc.h"
 
 #ifdef PORT
 const int port = PORT;
@@ -81,6 +80,7 @@ const int currentStreamSensorsSize = 59;
 SensorPacketId currentStreamSensors[currentStreamSensorsSize];
 
 bool isStreamingOverWS = false;
+bool forceFullUpdate = false;
 
 int64_t last_ws_frame = 0;
 const int WS_FRAME_INTERVAL_MS = 100; // 10 FPS max
@@ -422,11 +422,11 @@ void playNextSong()
 
 String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType)
 {
-    // Determine if we should do a full update
-    bool fullUpdate = (millis() - lastFullUpdateTime >= FULL_UPDATE_INTERVAL_MS);
+    bool fullUpdate = forceFullUpdate || (millis() - lastFullUpdateTime >= FULL_UPDATE_INTERVAL_MS);
     if (fullUpdate)
     {
         lastFullUpdateTime = millis();
+        forceFullUpdate = false;
     }
 
     // Mark all sensors as not included in this packet
@@ -951,10 +951,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
         IPAddress ip = webSocket.remoteIP(num);
         Serial.printf("[%u] Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
         isStreamingOverWS = true;
-
-        // Force sending a combined message with initial data on connect
-        last_ws_frame = 0; // Ensure camera frame is sentbreak;
-
+        last_ws_frame = 0;
+        forceFullUpdate = true;
         break;
     }
     case WStype_DISCONNECTED:
