@@ -83,8 +83,13 @@ bool isStreamingOverWS = false;
 bool forceFullUpdate = false;
 
 int64_t last_ws_frame = 0;
-const int WS_FRAME_INTERVAL_MS = 100; // 10 FPS max
 bool needCameraFrame = true;
+
+#ifdef MIN_FRAME_TIME_MS
+const int minFrameTimeMs = MIN_FRAME_TIME_MS;
+#else
+const int minFrameTimeMs = 100; // 10 FPS max
+#endif
 
 #define MAX_COMMAND_QUEUE 10
 QueueHandle_t commandQueue;
@@ -561,6 +566,10 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType)
 
 void sendCombinedBinaryMessage(const String &sensorJson, bool hasSensorData, bool needCameraFrame)
 {
+    static int64_t last_debug_frame = 0;
+    static int frame_count = 0;
+    int64_t current_time = esp_timer_get_time();
+
     // Get camera frame if needed
     camera_fb_t *fb = nullptr;
     if (needCameraFrame)
@@ -620,17 +629,40 @@ void sendCombinedBinaryMessage(const String &sensorJson, bool hasSensorData, boo
     buffer[14] = (cameraDataSize >> 16) & 0xFF;
     buffer[15] = (cameraDataSize >> 24) & 0xFF;
 
+    // Current position in buffer for the payload
+    size_t currentPos = BINARY_MESSAGE_HEADER_SIZE;
+
     // Add sensor data if available
     if (hasSensorData)
     {
         memcpy(buffer + BINARY_MESSAGE_HEADER_SIZE, sensorJson.c_str(), sensorDataSize);
+        currentPos += sensorDataSize;
     }
 
     // Add camera frame if available
     if (needCameraFrame && fb)
     {
-        memcpy(buffer + BINARY_MESSAGE_HEADER_SIZE + sensorDataSize, fb->buf, fb->len);
-        last_ws_frame = esp_timer_get_time() / 1000;
+        memcpy(buffer + currentPos, fb->buf, fb->len);
+        last_ws_frame = current_time / 1000;
+
+#ifdef DEBUG_CAMERA_STREAM
+        int64_t frame_time = 0;
+        if (last_debug_frame > 0)
+        {
+            frame_time = (current_time - last_debug_frame) / 1000;
+        }
+        last_debug_frame = current_time;
+
+        frame_count++;
+        float fps = (frame_time > 0) ? (1000.0f / (float)frame_time) : 0.0f;
+
+        Serial.printf("WS_CAM #%d: %ux%u %uB %lldms [%.1ffps]\r\n",
+                      frame_count,
+                      fb->width, fb->height,
+                      fb->len,
+                      frame_time,
+                      fps);
+#endif
     }
 
     // Send the combined binary message
@@ -700,7 +732,7 @@ void readDataFromRoomba()
             if (jsonData.length() > 0 && isStreamingOverWS && webSocket.connectedClients() > 0)
             {
                 // Get a camera frame for the combined message if needed
-                bool needFrame = esp_timer_get_time() / 1000 - last_ws_frame > WS_FRAME_INTERVAL_MS;
+                bool needFrame = esp_timer_get_time() / 1000 - last_ws_frame > minFrameTimeMs;
                 sendCombinedBinaryMessage(jsonData, true, needFrame);
             }
 
@@ -734,7 +766,7 @@ void readDataFromRoomba()
     // Check if we need to send a camera frame
     int64_t current_time = esp_timer_get_time() / 1000; // Convert to ms
     bool needFrame = isStreamingOverWS && webSocket.connectedClients() > 0 &&
-                     (current_time - last_ws_frame > WS_FRAME_INTERVAL_MS);
+                     (current_time - last_ws_frame > minFrameTimeMs);
 
     bool hasNewSensorData = false;
     String jsonSensorData;
@@ -992,114 +1024,6 @@ static esp_err_t handleHealthCheck(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t handleMjpegStream(httpd_req_t *req)
-{
-    camera_fb_t *fb = NULL;
-    esp_err_t res = ESP_OK;
-    size_t _jpg_buf_len = 0;
-    uint8_t *_jpg_buf = NULL;
-    char *part_buf[64];
-
-#ifdef MIN_FRAME_TIME_MS
-    int minFrameTimeMs = MIN_FRAME_TIME_MS;
-#else
-    int minFrameTimeMs = 0;
-#endif
-
-    static const char *STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
-    static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
-    static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
-
-    static int64_t last_frame = 0;
-    if (!last_frame)
-    {
-        last_frame = esp_timer_get_time();
-    }
-
-    res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
-    if (res != ESP_OK)
-    {
-        Serial.println("STREAM: failed to set HTTP response type");
-        return res;
-    }
-
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-
-    if (res == ESP_OK)
-    {
-        res = httpd_resp_send_chunk(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY));
-    }
-
-    while (true)
-    {
-        fb = esp_camera_fb_get();
-        if (!fb)
-        {
-            Serial.println("STREAM: failed to acquire frame");
-            res = ESP_FAIL;
-        }
-        else
-        {
-            if (fb->format != PIXFORMAT_JPEG)
-            {
-                Serial.println("STREAM: Non-JPEG frame returned by camera module");
-                res = ESP_FAIL;
-            }
-            else
-            {
-                _jpg_buf_len = fb->len;
-                _jpg_buf = fb->buf;
-            }
-        }
-        if (res == ESP_OK)
-        {
-            size_t hlen = snprintf((char *)part_buf, 64, STREAM_PART, _jpg_buf_len);
-            res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
-        }
-        if (res == ESP_OK)
-        {
-            res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
-        }
-        if (res == ESP_OK)
-        {
-            res = httpd_resp_send_chunk(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY));
-        }
-        if (fb)
-        {
-            esp_camera_fb_return(fb);
-            fb = NULL;
-            _jpg_buf = NULL;
-        }
-        else if (_jpg_buf)
-        {
-            free(_jpg_buf);
-            _jpg_buf = NULL;
-        }
-        if (res != ESP_OK)
-        {
-            break;
-        }
-        int64_t frame_time = esp_timer_get_time() - last_frame;
-        frame_time /= 1000;
-        int32_t frame_delay = (minFrameTimeMs > frame_time) ? minFrameTimeMs - frame_time : 0;
-        delay(frame_delay);
-
-#ifdef DEBUG_CAMERA_STREAM
-        Serial.printf("MJPG: %uB %lldms%s%s [%.1ffps]\r\n",
-                      _jpg_buf_len,
-                      frame_time,
-                      (frame_delay > 0) ? (" (delay: " + String(frame_delay) + "ms)").c_str() : "",
-                      (frame_time > 0) ? "" : "",
-                      (frame_time > 0) ? (1000.0f / (float)frame_time) : 0.0f);
-#endif
-
-        last_frame = esp_timer_get_time();
-    }
-
-    last_frame = 0;
-    return res;
-}
-
 static esp_err_t handleSpiffs(httpd_req_t *req)
 {
     char filepath[128];
@@ -1178,13 +1102,6 @@ void startServer()
         return;
     }
 
-    httpd_uri_t stream_uri = {
-        .uri = "/stream",
-        .method = HTTP_GET,
-        .handler = handleMjpegStream,
-        .user_ctx = NULL};
-    httpd_register_uri_handler(httpServer, &stream_uri);
-
     httpd_uri_t health_check = {
         .uri = "/healthcheck",
         .method = HTTP_GET,
@@ -1252,7 +1169,7 @@ void setup()
     config.pin_pwdn = PWDN_GPIO_NUM;
     config.pin_reset = RESET_GPIO_NUM;
     config.xclk_freq_hz = XCLK_FREQ_MHZ * 1000000;
-    config.frame_size = FRAMESIZE_VGA;
+    config.frame_size = FRAMESIZE_VGA; // QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA
     config.pixel_format = PIXFORMAT_JPEG;
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     config.fb_location = CAMERA_FB_IN_DRAM;
@@ -1265,7 +1182,6 @@ void setup()
         config.fb_count = 3;
         config.jpeg_quality = 12;
         config.grab_mode = CAMERA_GRAB_LATEST;
-        config.frame_size = FRAMESIZE_VGA; // QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA
     }
 
     // Camera init
