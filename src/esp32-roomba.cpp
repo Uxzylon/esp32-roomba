@@ -17,6 +17,7 @@
 #include "SPIFFS.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <ArduinoJson.h>
 
 #ifdef PORT
 const int port = PORT;
@@ -41,6 +42,9 @@ bool streamPaused = false;
 CommandOpcode sensorQueryListCommand = CommandOpcode::NONE;
 const int maxRequestedSensorPackets = 1024;
 SensorPacketId requestedSensorPackets[maxRequestedSensorPackets];
+
+#define BINARY_MESSAGE_HEADER_SIZE 16
+#define BINARY_MESSAGE_MAGIC 0x52434D42 // "RCMB" in ASCII
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 
@@ -77,6 +81,10 @@ const int currentStreamSensorsSize = 59;
 SensorPacketId currentStreamSensors[currentStreamSensorsSize];
 
 bool isStreamingOverWS = false;
+
+int64_t last_ws_frame = 0;
+const int WS_FRAME_INTERVAL_MS = 100; // 10 FPS max
+bool needCameraFrame = true;
 
 void setupSerial(int newBaudRate)
 {
@@ -540,6 +548,89 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType)
     return jsonData;
 }
 
+void sendCombinedBinaryMessage(const String &sensorJson, bool hasSensorData, bool needCameraFrame)
+{
+    // Get camera frame if needed
+    camera_fb_t *fb = nullptr;
+    if (needCameraFrame)
+    {
+        fb = esp_camera_fb_get();
+        if (!fb)
+        {
+            needCameraFrame = false;
+        }
+    }
+
+    // Calculate total size needed for the binary message
+    size_t sensorDataSize = hasSensorData ? sensorJson.length() : 0;
+    size_t cameraDataSize = (needCameraFrame && fb) ? fb->len : 0;
+    size_t totalSize = BINARY_MESSAGE_HEADER_SIZE + sensorDataSize + cameraDataSize;
+
+    // Allocate buffer for the binary message
+    uint8_t *buffer = (uint8_t *)malloc(totalSize);
+    if (!buffer)
+    {
+        Serial.println("Failed to allocate memory for binary message");
+        if (fb)
+            esp_camera_fb_return(fb);
+        return;
+    }
+
+    // Fill header (16 bytes):
+    // - Magic number (4 bytes): "RCMB" in ASCII
+    // - Flags (1 byte): bit 0 = has sensor data, bit 1 = has camera frame
+    // - Reserved (3 bytes): for future use
+    // - Sensor data size (4 bytes)
+    // - Camera frame size (4 bytes)
+
+    // Magic number
+    buffer[0] = 'R';
+    buffer[1] = 'C';
+    buffer[2] = 'M';
+    buffer[3] = 'B';
+
+    // Flags
+    buffer[4] = (hasSensorData ? 1 : 0) | (needCameraFrame ? 2 : 0);
+
+    // Reserved
+    buffer[5] = 0;
+    buffer[6] = 0;
+    buffer[7] = 0;
+
+    // Sensor data size (little endian)
+    buffer[8] = sensorDataSize & 0xFF;
+    buffer[9] = (sensorDataSize >> 8) & 0xFF;
+    buffer[10] = (sensorDataSize >> 16) & 0xFF;
+    buffer[11] = (sensorDataSize >> 24) & 0xFF;
+
+    // Camera frame size (little endian)
+    buffer[12] = cameraDataSize & 0xFF;
+    buffer[13] = (cameraDataSize >> 8) & 0xFF;
+    buffer[14] = (cameraDataSize >> 16) & 0xFF;
+    buffer[15] = (cameraDataSize >> 24) & 0xFF;
+
+    // Add sensor data if available
+    if (hasSensorData)
+    {
+        memcpy(buffer + BINARY_MESSAGE_HEADER_SIZE, sensorJson.c_str(), sensorDataSize);
+    }
+
+    // Add camera frame if available
+    if (needCameraFrame && fb)
+    {
+        memcpy(buffer + BINARY_MESSAGE_HEADER_SIZE + sensorDataSize, fb->buf, fb->len);
+        last_ws_frame = esp_timer_get_time() / 1000;
+    }
+
+    // Send the combined binary message
+    webSocket.broadcastBIN(buffer, totalSize);
+
+    // Free resources
+    free(buffer);
+    if (fb)
+        esp_camera_fb_return(fb);
+}
+
 void readDataFromRoomba()
 {
     if (sensorQueryListCommand != CommandOpcode::NONE)
@@ -574,7 +665,14 @@ void readDataFromRoomba()
             // Parse the data and send it to the websocket
             String jsonData = parseSensorData(data, dataIndex, sensorQueryListCommand);
             Serial.println(jsonData);
-            webSocket.broadcastTXT(jsonData);
+
+            // Replace direct text sending with binary message
+            if (jsonData.length() > 0 && isStreamingOverWS && webSocket.connectedClients() > 0)
+            {
+                // Get a camera frame for the combined message if needed
+                bool needFrame = esp_timer_get_time() / 1000 - last_ws_frame > WS_FRAME_INTERVAL_MS;
+                sendCombinedBinaryMessage(jsonData, true, needFrame);
+            }
 
             sensorQueryListCommand = CommandOpcode::NONE;
             if (!streamPaused)
@@ -603,6 +701,15 @@ void readDataFromRoomba()
     static byte streamedData[maxRequestedSensorPackets];
     static int dataIndex = 0;
 
+    // Check if we need to send a camera frame
+    int64_t current_time = esp_timer_get_time() / 1000; // Convert to ms
+    bool needFrame = isStreamingOverWS && webSocket.connectedClients() > 0 &&
+                     (current_time - last_ws_frame > WS_FRAME_INTERVAL_MS);
+
+    bool hasNewSensorData = false;
+    String jsonSensorData;
+
+    // Process any incoming Roomba data
     while (mySerial.available())
     {
         switch (state)
@@ -673,16 +780,21 @@ void readDataFromRoomba()
 
         case PARSE_DATA:
         {
-            String jsonData = parseSensorData(streamedData, nBytes, CommandOpcode::STREAM);
-            // Only send if there's data to send
-            if (jsonData.length() > 0)
+            jsonSensorData = parseSensorData(streamedData, nBytes, CommandOpcode::STREAM);
+            if (jsonSensorData.length() > 0)
             {
-                webSocket.broadcastTXT(jsonData);
+                hasNewSensorData = true;
             }
             state = WAIT_FOR_HEADER;
         }
         break;
         }
+    }
+
+    // Send a combined binary message if we have new data or need a frame
+    if ((hasNewSensorData || needFrame) && isStreamingOverWS && webSocket.connectedClients() > 0)
+    {
+        sendCombinedBinaryMessage(jsonSensorData, hasNewSensorData, needFrame);
     }
 }
 
@@ -729,6 +841,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
         IPAddress ip = webSocket.remoteIP(num);
         Serial.printf("[%u] Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
         isStreamingOverWS = true;
+
+        // Force sending a combined message with initial data on connect
+        last_ws_frame = 0; // Ensure camera frame is sentbreak;
+
         break;
     }
     case WStype_DISCONNECTED:

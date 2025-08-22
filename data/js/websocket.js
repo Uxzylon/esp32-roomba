@@ -80,6 +80,13 @@ function initWebSocketConnection(wsPath) {
     };
 
     ws.onmessage = function(event) {
+        // Handle binary messages containing combined data
+        if (event.data instanceof Blob) {
+            processCombinedMessage(event.data);
+            return;
+        }
+        
+        // Handle legacy text messages
         try {
             const jsonData = JSON.parse(event.data);
             displayRoombaData(event.data);
@@ -93,6 +100,107 @@ function initWebSocketConnection(wsPath) {
         storedSensorData = {};
         afterDisconnect();
     };
+}
+
+function processCombinedMessage(binaryData) {
+    // Create a DataView to read binary data
+    const blob = new Blob([binaryData]);
+    
+    // Convert blob to ArrayBuffer
+    blob.arrayBuffer().then(buffer => {
+        const dataView = new DataView(buffer);
+        
+        // Check magic number ("RCMB")
+        const magic = String.fromCharCode(
+            dataView.getUint8(0),
+            dataView.getUint8(1),
+            dataView.getUint8(2),
+            dataView.getUint8(3)
+        );
+        
+        if (magic !== "RCMB") {
+            console.error("Invalid binary message format");
+            return;
+        }
+        
+        // Read header
+        const flags = dataView.getUint8(4);
+        const hasSensorData = (flags & 1) === 1;
+        const hasCameraFrame = (flags & 2) === 2;
+        
+        // Get sizes
+        const sensorDataSize = dataView.getUint32(8, true); // little endian
+        const cameraFrameSize = dataView.getUint32(12, true); // little endian
+        
+        // Process sensor data if present
+        if (hasSensorData && sensorDataSize > 0) {
+            const sensorDataStart = 16; // After header
+            const sensorDataEnd = sensorDataStart + sensorDataSize;
+            
+            // Extract sensor data as string
+            const sensorDataBlob = new Blob([buffer.slice(sensorDataStart, sensorDataEnd)]);
+            sensorDataBlob.text().then(jsonText => {
+                try {
+                    displayRoombaData(jsonText);
+                } catch (e) {
+                    console.error("Error parsing sensor data:", e);
+                }
+            });
+        }
+        
+        // Process camera frame if present
+        if (hasCameraFrame && cameraFrameSize > 0) {
+            const frameDataStart = 16 + sensorDataSize;
+            const frameDataEnd = frameDataStart + cameraFrameSize;
+            
+            // Extract camera frame
+            const frameBlob = new Blob([buffer.slice(frameDataStart, frameDataEnd)], {type: 'image/jpeg'});
+            const url = URL.createObjectURL(frameBlob);
+            
+            const img = document.getElementById('backgroundImage');
+            
+            // Clean up previous object URL
+            if (img.src && img.src.startsWith('blob:')) {
+                URL.revokeObjectURL(img.src);
+            }
+            
+            img.src = url;
+            img.style.display = 'block';
+            
+            // Hide the placeholder if visible
+            const placeholder = document.getElementById('videoPlaceholder');
+            if (placeholder) {
+                placeholder.style.display = 'none';
+            }
+        }
+    }).catch(error => {
+        console.error("Error processing binary message:", error);
+    });
+}
+
+function handleCameraFrame(binaryData) {
+    try {
+        const blob = new Blob([binaryData], {type: 'image/jpeg'});
+        const url = URL.createObjectURL(blob);
+        
+        const img = document.getElementById('backgroundImage');
+        
+        // Clean up previous object URL
+        if (img.src && img.src.startsWith('blob:')) {
+            URL.revokeObjectURL(img.src);
+        }
+        
+        img.src = url;
+        img.style.display = 'block';
+        
+        // Hide the placeholder if visible
+        const placeholder = document.getElementById('videoPlaceholder');
+        if (placeholder) {
+            placeholder.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Error processing camera frame:', error);
+    }
 }
 
 export function disconnectWebSocket() {

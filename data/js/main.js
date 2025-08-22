@@ -109,22 +109,6 @@ export function afterConnect() {
     } else if (!state.roombaTurnedOn && !state.paused || (state.roombaTurnedOn && state.paused)) {
         afterRoombaTurnedOn(false);
     }
-
-    const currentHost = window.location.hostname;
-    const protocol = window.location.protocol;
-
-    const basePath = getHostname(currentHost).replace(/:\d+$/, '');
-    const streamUrl = `${protocol}//${basePath}/stream`;
-    
-    const backgroundImage = document.getElementById('backgroundImage');
-    backgroundImage.src = streamUrl;
-    
-    function updateImage() {
-        backgroundImage.src = `${streamUrl}?t=${new Date().getTime()}`;
-    }
-
-    backgroundImage.onload = updateImage;
-    updateImage();
 }
 
 export function afterDisconnect() {
@@ -143,10 +127,18 @@ export function afterDisconnect() {
         portInput.classList.add('disconnected');
     }
 
-    // Clear the image source and stop the interval
+    // Clear the image source
     const backgroundImage = document.getElementById('backgroundImage');
+    if (backgroundImage.src && backgroundImage.src.startsWith('blob:')) {
+        URL.revokeObjectURL(backgroundImage.src);
+    }
     backgroundImage.src = '';
-    clearInterval(streamInterval);
+    backgroundImage.style.display = 'none';
+    
+    const placeholder = document.getElementById('videoPlaceholder');
+    if (placeholder) {
+        placeholder.style.display = 'flex';
+    }
 }
 
 export function afterRoombaTurnedOn(updateState = true) {
