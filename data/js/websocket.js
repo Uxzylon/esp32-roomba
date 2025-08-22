@@ -11,6 +11,8 @@ const roombaDataQueryElements = document.getElementsByClassName("roombaData-quer
 
 let connectionAttemptInProgress = false;
 
+let storedSensorData = {};
+
 export function connectWebSocket() {
     if (connectionAttemptInProgress) return;
     connectionAttemptInProgress = true;
@@ -88,6 +90,7 @@ function initWebSocketConnection(wsPath) {
 
     ws.onclose = function() {
         console.log('WebSocket connection closed');
+        storedSensorData = {};
         afterDisconnect();
     };
 }
@@ -109,6 +112,7 @@ function displayRoombaData(data) {
     let jsonData = JSON.parse(data);
     const needUpdate = (!state.roombaTurnedOn && !state.paused) || (state.roombaTurnedOn && !state.paused);
 
+    // Check for OI_MODE to determine if Roomba is turned on
     if (
         needUpdate &&
         jsonData.data &&
@@ -118,16 +122,32 @@ function displayRoombaData(data) {
         afterRoombaTurnedOn();
     }
 
+    // Update our stored sensor data
+    if (jsonData.data) {
+        for (const [sensorName, rawValue] of Object.entries(jsonData.data)) {
+            if (rawValue === null) {
+                // Remove sensors that are no longer present
+                delete storedSensorData[sensorName];
+            } else {
+                // Update or add sensor values
+                storedSensorData[sensorName] = rawValue;
+            }
+        }
+    }
+
+    // Format all stored sensor data
     const formattedData = {};
-    for (const [sensorName, rawValue] of Object.entries(jsonData.data)) {
+    for (const [sensorName, rawValue] of Object.entries(storedSensorData)) {
         formattedData[sensorName] = formatSensorValue(sensorName, rawValue);
     }
 
+    // Build the display text
     let formattedText = '';
     for (const [sensorName, formattedValue] of Object.entries(formattedData)) {
         formattedText += `"${sensorName}": ${formattedValue}\n`;
     }
 
+    // Update the appropriate display elements
     let elements;
     if (jsonData.type === "stream") {
         elements = roombaDataStreamElements;

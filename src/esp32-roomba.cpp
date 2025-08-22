@@ -10,8 +10,7 @@
 #include <HardwareSerial.h>
 #include "config.h"
 #include "baudRateEnum.h"
-#include "sensorPacketIdEnum.h"
-#include "sensorPacketsDataBytes.h"
+#include "sensorPackets.h"
 #include "commandOpcodeEnum.h"
 #include <ArduinoOTA.h>
 #include "esp32/spiram.h"
@@ -43,6 +42,19 @@ CommandOpcode sensorQueryListCommand = CommandOpcode::NONE;
 const int maxRequestedSensorPackets = 1024;
 SensorPacketId requestedSensorPackets[maxRequestedSensorPackets];
 
+#define PART_BOUNDARY "123456789000000000000987654321"
+
+#define MAX_SENSOR_ID 100 // Maximum sensor ID we'll track
+struct PreviousSensorValue
+{
+    bool initialized = false;
+    int value = 0;
+    bool included = false; // Whether this sensor was in the last packet
+};
+PreviousSensorValue previousSensorValues[MAX_SENSOR_ID];
+unsigned long lastFullUpdateTime = 0;
+const unsigned long FULL_UPDATE_INTERVAL_MS = 3000;
+
 unsigned long songStartTime = 0;
 unsigned long currentSongDuration = 0;
 
@@ -65,15 +77,6 @@ const int currentStreamSensorsSize = 59;
 SensorPacketId currentStreamSensors[currentStreamSensorsSize];
 
 bool isStreamingOverWS = false;
-unsigned long lastFrameSentTime = 0;
-const int WS_STREAM_FPS = 10;
-static int64_t last_ws_frame = 0;
-
-#define PART_BOUNDARY "123456789000000000000987654321"
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-static const char *STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
-static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
-static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
 void setupSerial(int newBaudRate)
 {
@@ -400,6 +403,23 @@ void playNextSong()
 
 String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType)
 {
+    // Determine if we should do a full update
+    bool fullUpdate = (millis() - lastFullUpdateTime >= FULL_UPDATE_INTERVAL_MS);
+    if (fullUpdate)
+    {
+        lastFullUpdateTime = millis();
+    }
+
+    // Mark all sensors as not included in this packet
+    for (int i = 0; i < MAX_SENSOR_ID; i++)
+    {
+        if (previousSensorValues[i].initialized)
+        {
+            previousSensorValues[i].included = false;
+        }
+    }
+
+    // JSON to hold changed values
     String jsonData = "{\"type\":\"";
     if (dataType == CommandOpcode::SENSORS)
     {
@@ -425,12 +445,20 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType)
         currentStreamSensors[i] = static_cast<SensorPacketId>(-1);
     }
 
+    // Process each packet in the data stream
+    bool hasChanges = false;
     int dataIndex = 0;
     while (dataIndex < nBytes)
     {
         SensorPacketId packetID = static_cast<SensorPacketId>(streamedData[dataIndex]);
         int packetSize = getPacketSize(packetID);
         byte *sensorData = &streamedData[dataIndex + 1];
+
+        // Set the current sensor as included
+        if (packetID < MAX_SENSOR_ID)
+        {
+            previousSensorValues[packetID].included = true;
+        }
 
         // Print the sensor data
         // Serial.println("Packet ID: " + String(packetID) + ", Packet size: " + String(packetSize));
@@ -441,158 +469,34 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType)
         // }
         // Serial.println();
 
-        switch (packetID)
+        // Get sensor name and value using the helper functions
+        String sensorName = getSensorName(packetID);
+        int sensorValue = parseSensorValue(packetID, sensorData);
+
+        // Special case for SONG_PLAYING
+        if (packetID == SONG_PLAYING)
         {
-        case BUMPS_AND_WHEEL_DROPS:
-            jsonData += "\"bumps_wheeldrops\":" + String(sensorData[0]) + ",";
-            break;
-        case WALL:
-            jsonData += "\"wall\":" + String(sensorData[0]) + ",";
-            break;
-        case CLIFF_LEFT:
-            jsonData += "\"cliff_left\":" + String(sensorData[0]) + ",";
-            break;
-        case CLIFF_FRONT_LEFT:
-            jsonData += "\"cliff_front_left\":" + String(sensorData[0]) + ",";
-            break;
-        case CLIFF_FRONT_RIGHT:
-            jsonData += "\"cliff_front_right\":" + String(sensorData[0]) + ",";
-            break;
-        case CLIFF_RIGHT:
-            jsonData += "\"cliff_right\":" + String(sensorData[0]) + ",";
-            break;
-        case VIRTUAL_WALL:
-            jsonData += "\"virtual_wall\":" + String(sensorData[0]) + ",";
-            break;
-        case WHEEL_OVERCURRENTS:
-            jsonData += "\"wheel_overcurrents\":" + String(sensorData[0]) + ",";
-            break;
-        case DIRT_DETECT:
-            jsonData += "\"dirt_detect\":" + String(sensorData[0]) + ",";
-            break;
-        case INFRARED_CHARACTER_OMNI:
-            jsonData += "\"infrared_omni\":" + String(sensorData[0]) + ",";
-            break;
-        case BUTTONS_SENSOR:
-            jsonData += "\"buttons\":" + String(sensorData[0]) + ",";
-            break;
-        case DISTANCE:
-            jsonData += "\"distance\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
-            break;
-        case ANGLE:
-            jsonData += "\"angle\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
-            break;
-        case CHARGING_STATE:
-            jsonData += "\"charging_state\":" + String(sensorData[0]) + ",";
-            break;
-        case VOLTAGE:
-            jsonData += "\"voltage\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case CURRENT:
-            jsonData += "\"current\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
-            break;
-        case TEMPERATURE:
-            jsonData += "\"temperature\":" + String((int8_t)(sensorData[0])) + ",";
-            break;
-        case BATTERY_CHARGE:
-            jsonData += "\"battery_charge\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case BATTERY_CAPACITY:
-            jsonData += "\"battery_capacity\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case WALL_SIGNAL:
-            jsonData += "\"wall_signal\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case CLIFF_LEFT_SIGNAL:
-            jsonData += "\"cliff_left_signal\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case CLIFF_FRONT_LEFT_SIGNAL:
-            jsonData += "\"cliff_front_left_signal\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case CLIFF_FRONT_RIGHT_SIGNAL:
-            jsonData += "\"cliff_front_right_signal\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case CLIFF_RIGHT_SIGNAL:
-            jsonData += "\"cliff_right_signal\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case CHARGING_SOURCES_AVAILABLE:
-            jsonData += "\"charging_sources_available\":" + String(sensorData[0]) + ",";
-            break;
-        case OI_MODE:
-            jsonData += "\"oi_mode\":" + String(sensorData[0]) + ",";
-            break;
-        case SONG_NUMBER:
-            jsonData += "\"song_number\":" + String(sensorData[0]) + ",";
-            break;
-        case SONG_PLAYING:
             isRoombaPlayingSong = sensorData[0] == 1;
-            jsonData += "\"song_playing\":" + String(sensorData[0]) + ",";
-            break;
-        case NUMBER_OF_STREAM_PACKETS:
-            jsonData += "\"number_of_stream_packets\":" + String(sensorData[0]) + ",";
-            break;
-        case REQUESTED_VELOCITY:
-            jsonData += "\"requested_velocity\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
-            break;
-        case REQUESTED_RADIUS:
-            jsonData += "\"requested_radius\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
-            break;
-        case REQUESTED_RIGHT_VELOCITY:
-            jsonData += "\"requested_right_velocity\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
-            break;
-        case REQUESTED_LEFT_VELOCITY:
-            jsonData += "\"requested_left_velocity\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
-            break;
-        case LEFT_ENCODER_COUNTS:
-            jsonData += "\"left_encoder_counts\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case RIGHT_ENCODER_COUNTS:
-            jsonData += "\"right_encoder_counts\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case LIGHT_BUMPER:
-            jsonData += "\"light_bumper\":" + String(sensorData[0]) + ",";
-            break;
-        case LIGHT_BUMP_LEFT_SIGNAL:
-            jsonData += "\"light_bump_left_signal\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case LIGHT_BUMP_FRONT_LEFT_SIGNAL:
-            jsonData += "\"light_bump_front_left_signal\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case LIGHT_BUMP_CENTER_LEFT_SIGNAL:
-            jsonData += "\"light_bump_center_left_signal\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case LIGHT_BUMP_CENTER_RIGHT_SIGNAL:
-            jsonData += "\"light_bump_center_right_signal\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case LIGHT_BUMP_FRONT_RIGHT_SIGNAL:
-            jsonData += "\"light_bump_front_right_signal\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case LIGHT_BUMP_RIGHT_SIGNAL:
-            jsonData += "\"light_bump_right_signal\":" + String((sensorData[0] << 8) | sensorData[1]) + ",";
-            break;
-        case INFRARED_CHARACTER_LEFT:
-            jsonData += "\"infrared_character_left\":" + String(sensorData[0]) + ",";
-            break;
-        case INFRARED_CHARACTER_RIGHT:
-            jsonData += "\"infrared_character_right\":" + String(sensorData[0]) + ",";
-            break;
-        case LEFT_MOTOR_CURRENT:
-            jsonData += "\"left_motor_current\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
-            break;
-        case RIGHT_MOTOR_CURRENT:
-            jsonData += "\"right_motor_current\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
-            break;
-        case MAIN_BRUSH_MOTOR_CURRENT:
-            jsonData += "\"main_brush_motor_current\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
-            break;
-        case SIDE_BRUSH_MOTOR_CURRENT:
-            jsonData += "\"side_brush_motor_current\":" + String((int16_t)((sensorData[0] << 8) | sensorData[1])) + ",";
-            break;
-        case STASIS:
-            jsonData += "\"stasis\":" + String(sensorData[0]) + ",";
-            break;
-        default:
-            break;
+        }
+
+        // Only include the sensor if it changed or this is a full update
+        if (!sensorName.isEmpty())
+        {
+            if (packetID < MAX_SENSOR_ID)
+            {
+                if (fullUpdate ||
+                    !previousSensorValues[packetID].initialized ||
+                    previousSensorValues[packetID].value != sensorValue)
+                {
+                    // Value changed or first time seeing this sensor
+                    jsonData += "\"" + String(sensorName) + "\":" + String(sensorValue) + ",";
+                    hasChanges = true;
+
+                    // Store the new value
+                    previousSensorValues[packetID].value = sensorValue;
+                    previousSensorValues[packetID].initialized = true;
+                }
+            }
         }
 
         dataIndex += packetSize + 1;
@@ -601,6 +505,29 @@ String parseSensorData(byte *streamedData, int nBytes, CommandOpcode dataType)
         {
             currentStreamSensors[packetID] = packetID;
         }
+    }
+
+    // Check for sensors that were in previous packets but not in this one
+    // Send null for them to indicate they're no longer present
+    for (int i = 0; i < MAX_SENSOR_ID; i++)
+    {
+        if (previousSensorValues[i].initialized && !previousSensorValues[i].included)
+        {
+            String sensorName = getSensorName(static_cast<SensorPacketId>(i));
+
+            if (!sensorName.isEmpty())
+            {
+                jsonData += "\"" + String(sensorName) + "\":null,";
+                hasChanges = true;
+                previousSensorValues[i].initialized = false;
+            }
+        }
+    }
+
+    // If no changes and not a full update, return empty
+    if (!hasChanges && !fullUpdate)
+    {
+        return "";
     }
 
     // Remove the trailing comma and close the JSON string
@@ -747,7 +674,11 @@ void readDataFromRoomba()
         case PARSE_DATA:
         {
             String jsonData = parseSensorData(streamedData, nBytes, CommandOpcode::STREAM);
-            webSocket.broadcastTXT(jsonData);
+            // Only send if there's data to send
+            if (jsonData.length() > 0)
+            {
+                webSocket.broadcastTXT(jsonData);
+            }
             state = WAIT_FOR_HEADER;
         }
         break;
@@ -889,11 +820,16 @@ static esp_err_t handleMjpegStream(httpd_req_t *req)
     size_t _jpg_buf_len = 0;
     uint8_t *_jpg_buf = NULL;
     char *part_buf[64];
+
 #ifdef MIN_FRAME_TIME_MS
     int minFrameTimeMs = MIN_FRAME_TIME_MS;
 #else
     int minFrameTimeMs = 0;
 #endif
+
+    static const char *STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
+    static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
+    static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
     static int64_t last_frame = 0;
     if (!last_frame)
