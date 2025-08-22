@@ -86,6 +86,17 @@ int64_t last_ws_frame = 0;
 const int WS_FRAME_INTERVAL_MS = 100; // 10 FPS max
 bool needCameraFrame = true;
 
+#define MAX_COMMAND_QUEUE 10
+QueueHandle_t commandQueue;
+
+typedef struct
+{
+    String command;
+    uint8_t clientNum;
+} CommandItem;
+
+TaskHandle_t commandTaskHandle = NULL;
+
 void setupSerial(int newBaudRate)
 {
     mySerial.begin(newBaudRate, SERIAL_8N1, RX_PIN, TX_PIN);
@@ -635,6 +646,25 @@ void readDataFromRoomba()
 {
     if (sensorQueryListCommand != CommandOpcode::NONE)
     {
+        static unsigned long queryStartTime = 0;
+
+        if (queryStartTime == 0)
+        {
+            queryStartTime = millis();
+        }
+
+        if (millis() - queryStartTime > 500)
+        { // 500ms timeout for query response
+            Serial.println("Sensor query timeout");
+            sensorQueryListCommand = CommandOpcode::NONE;
+            if (!streamPaused)
+            {
+                pauseStream(false);
+            }
+            queryStartTime = 0;
+            return;
+        }
+
         if (mySerial.available())
         {
             Serial.println("Sensor or query_list command response");
@@ -798,6 +828,86 @@ void readDataFromRoomba()
     }
 }
 
+void prepareAndSendSensorQuery(CommandOpcode opcode, int *dataBytes, int paramCount)
+{
+    bool wasStreaming = !streamPaused;
+    if (wasStreaming)
+    {
+        pauseStream(true);
+        delay(50); // Short delay instead of 500ms
+    }
+
+    storeRequestedSensorPackets(dataBytes, paramCount, opcode);
+    clearSerialBuffer();
+    runCommand(static_cast<byte>(opcode), dataBytes, paramCount);
+}
+
+void handleRoombaCommand(CommandOpcode opcode, int *dataBytes, int paramCount, uint8_t clientNum)
+{
+    if (opcode == CommandOpcode::WAKEUP)
+    {
+        wakeUp();
+    }
+    else if (opcode == CommandOpcode::BAUD)
+    {
+        baud(static_cast<BaudRate>(dataBytes[0]));
+    }
+    else if (opcode == CommandOpcode::PAUSE_RESUME_STREAM)
+    {
+        bool pause = dataBytes[0] == 0;
+        pauseStream(pause);
+        streamPaused = pause;
+    }
+    else if (opcode == CommandOpcode::STREAM_SONG)
+    {
+        handleStreamSongCommand(dataBytes, paramCount);
+    }
+    else if (opcode == CommandOpcode::SENSORS || opcode == CommandOpcode::QUERY_LIST)
+    {
+        prepareAndSendSensorQuery(opcode, dataBytes, paramCount);
+    }
+    else
+    {
+        runCommand(static_cast<byte>(opcode), dataBytes, paramCount);
+    }
+}
+
+void processCommand(String command, uint8_t clientNum)
+{
+    String action = command.substring(0, command.indexOf(' '));
+
+    const int maxParams = 1024;
+    int dataBytes[maxParams];
+    int paramCount = parseCommandParameters(command, dataBytes, maxParams);
+
+    CommandOpcode opcode = getOpcodeByName(action);
+
+    if (opcode != static_cast<CommandOpcode>(-1))
+    {
+        int expectedDataBytes = getDataBytesByOpcode(opcode);
+        if (areDataBytesValid(expectedDataBytes, dataBytes, paramCount))
+        {
+            handleRoombaCommand(opcode, dataBytes, paramCount, clientNum);
+        }
+    }
+}
+
+void commandTask(void *parameter)
+{
+    CommandItem item;
+
+    for (;;)
+    {
+        // Wait for a command to be available in the queue
+        if (xQueueReceive(commandQueue, &item, portMAX_DELAY) == pdTRUE)
+        {
+            // Process the command without blocking WebSocket or sensor reading
+            processCommand(item.command, item.clientNum);
+        }
+        yield();
+    }
+}
+
 bool initPSRAM()
 {
     if (!psramInit() || !psramFound())
@@ -858,59 +968,14 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     }
     case WStype_TEXT:
     {
-        String command = String((char *)payload);
-        String action = command.substring(0, command.indexOf(' '));
-
-        const int maxParams = 1024;
-        int dataBytes[maxParams];
-        int paramCount = parseCommandParameters(command, dataBytes, maxParams);
-
-        CommandOpcode opcode = getOpcodeByName(action);
-
-        if (opcode != static_cast<CommandOpcode>(-1))
+        if (length > 0)
         {
-            int expectedDataBytes = getDataBytesByOpcode(opcode);
-            if (areDataBytesValid(expectedDataBytes, dataBytes, paramCount))
-            {
-                if (opcode == CommandOpcode::WAKEUP)
-                {
-                    wakeUp();
-                }
-                else if (opcode == CommandOpcode::BAUD)
-                {
-                    baud(static_cast<BaudRate>(dataBytes[0]));
-                }
-                else if (opcode == CommandOpcode::PAUSE_RESUME_STREAM)
-                {
-                    bool pause = dataBytes[0] == 0;
-                    pauseStream(pause);
-                    delay(500);
-                    streamPaused = pause;
-                }
-                else if (opcode == CommandOpcode::STREAM_SONG)
-                {
-                    handleStreamSongCommand(dataBytes, paramCount);
-                }
-                else
-                {
-                    if (opcode == CommandOpcode::SENSORS || opcode == CommandOpcode::QUERY_LIST)
-                    {
-                        pauseStream(true);
-                        delay(500);
-                        storeRequestedSensorPackets(dataBytes, paramCount, opcode);
-                        clearSerialBuffer();
-                    }
-                    runCommand(static_cast<byte>(opcode), dataBytes, paramCount);
-                }
-            }
-            else
-            {
-                Serial.println("Invalid parameters");
-            }
-        }
-        else
-        {
-            Serial.println("Invalid command");
+            CommandItem item;
+            item.command = String((char *)payload);
+            item.clientNum = num;
+
+            // Add to queue with timeout
+            xQueueSend(commandQueue, &item, 50 / portTICK_PERIOD_MS);
         }
         break;
     }
@@ -1250,6 +1315,18 @@ void setup()
     Serial.println("");
     Serial.println("Connected to WiFi");
     Serial.println(WiFi.localIP());
+
+    commandQueue = xQueueCreate(MAX_COMMAND_QUEUE, sizeof(CommandItem));
+
+    xTaskCreatePinnedToCore(
+        commandTask,        // Task function
+        "CommandTask",      // Name
+        8192,               // Stack size
+        NULL,               // Parameter
+        2,                  // Priority (higher than normal tasks)
+        &commandTaskHandle, // Task handle
+        1                   // Run on core 1 (app core)
+    );
 
     startServer();
 
