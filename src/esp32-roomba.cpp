@@ -10,6 +10,7 @@
 #include "esp32/spiram.h"
 #include "esp_camera.h"
 #include "esp_http_server.h"
+#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -362,6 +363,11 @@ void addToCurrentStream(SensorPacketId packetID)
 
 void playNextSong()
 {
+    if (!(songHead && millis() - songStartTime >= (currentSongDuration * 0.25) && !isRoombaPlayingSong))
+    {
+        return;
+    }
+
     Song *song = songHead;
     songHead = songHead->next;
     if (!songHead)
@@ -1289,17 +1295,18 @@ void setup()
         } });
     ArduinoOTA.setTimeout(60000);
     ArduinoOTA.begin();
+
+    // Watchdog timer setup
+    esp_task_wdt_init(30, true); // Enable 30 seconds timeout with panic
+    esp_task_wdt_add(NULL); // Add current thread to watchdog
 }
 
 void loop()
 {
     webSocket.loop();
     readDataFromRoomba();
-
-    if (songHead && millis() - songStartTime >= (currentSongDuration * 0.25) && !isRoombaPlayingSong)
-    {
-        playNextSong();
-    }
-
+    playNextSong();
     ArduinoOTA.handle();
+
+    esp_task_wdt_reset(); // Feed the watchdog
 }
