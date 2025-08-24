@@ -103,6 +103,9 @@ typedef struct
 
 TaskHandle_t commandTaskHandle = NULL;
 
+#define MAX_BINARY_BUFFER_SIZE (16 + 4096 + 65536) // Header + JSON + Max JPEG
+uint8_t *preAllocatedBuffer = nullptr;
+
 void setupSerial(int newBaudRate)
 {
     mySerial.begin(newBaudRate, SERIAL_8N1, RX_PIN, TX_PIN);
@@ -576,7 +579,21 @@ void sendCombinedBinaryMessage(const String &sensorJson, bool hasSensorData, boo
     static int frame_count = 0;
     int64_t current_time = esp_timer_get_time();
 
-    // Get camera frame if needed
+    // Skip if no clients connected to avoid unnecessary processing
+    if (!isStreamingOverWS || webSocket.connectedClients() == 0)
+    {
+        return;
+    }
+
+    // Calculate sensor data size first
+    size_t sensorDataSize = hasSensorData ? sensorJson.length() : 0;
+    size_t totalSize = BINARY_MESSAGE_HEADER_SIZE + sensorDataSize;
+
+    // Check if buffer is available - use heap if PSRAM buffer not available
+    uint8_t *buffer = preAllocatedBuffer;
+    bool usingPreallocated = (buffer != nullptr);
+
+    // Get camera frame if needed - do this BEFORE allocating heap memory
     camera_fb_t *fb = nullptr;
     if (needCameraFrame)
     {
@@ -585,30 +602,35 @@ void sendCombinedBinaryMessage(const String &sensorJson, bool hasSensorData, boo
         {
             needCameraFrame = false;
         }
+        else
+        {
+            totalSize += fb->len;
+        }
     }
 
-    // Calculate total size needed for the binary message
-    size_t sensorDataSize = hasSensorData ? sensorJson.length() : 0;
-    size_t cameraDataSize = (needCameraFrame && fb) ? fb->len : 0;
-    size_t totalSize = BINARY_MESSAGE_HEADER_SIZE + sensorDataSize + cameraDataSize;
-
-    // Allocate buffer for the binary message
-    uint8_t *buffer = (uint8_t *)malloc(totalSize);
-    if (!buffer)
+    // If no preallocated buffer, allocate from heap
+    if (!usingPreallocated)
     {
-        Serial.println("Failed to allocate memory for binary message");
+        buffer = (uint8_t *)malloc(totalSize);
+        if (!buffer)
+        {
+            Serial.println("Failed to allocate memory for binary message");
+            if (fb)
+                esp_camera_fb_return(fb);
+            return;
+        }
+    }
+    else if (totalSize > MAX_BINARY_BUFFER_SIZE)
+    {
+        // Check if preallocated buffer is big enough
+        Serial.printf("Message too large for preallocated buffer: %u > %u\n",
+                      totalSize, MAX_BINARY_BUFFER_SIZE);
         if (fb)
             esp_camera_fb_return(fb);
         return;
     }
 
-    // Fill header (16 bytes):
-    // - Magic number (4 bytes): "RCMB" in ASCII
-    // - Flags (1 byte): bit 0 = has sensor data, bit 1 = has camera frame
-    // - Reserved (3 bytes): for future use
-    // - Sensor data size (4 bytes)
-    // - Camera frame size (4 bytes)
-
+    // Fill header (16 bytes)
     // Magic number
     buffer[0] = 'R';
     buffer[1] = 'C';
@@ -630,54 +652,65 @@ void sendCombinedBinaryMessage(const String &sensorJson, bool hasSensorData, boo
     buffer[11] = (sensorDataSize >> 24) & 0xFF;
 
     // Camera frame size (little endian)
+    size_t cameraDataSize = (fb) ? fb->len : 0;
     buffer[12] = cameraDataSize & 0xFF;
     buffer[13] = (cameraDataSize >> 8) & 0xFF;
     buffer[14] = (cameraDataSize >> 16) & 0xFF;
     buffer[15] = (cameraDataSize >> 24) & 0xFF;
 
-    // Current position in buffer for the payload
+    // Track current position in buffer
     size_t currentPos = BINARY_MESSAGE_HEADER_SIZE;
 
-    // Add sensor data if available
-    if (hasSensorData)
+    // Add sensor data if available - use direct copy for efficiency
+    if (hasSensorData && sensorDataSize > 0)
     {
-        memcpy(buffer + BINARY_MESSAGE_HEADER_SIZE, sensorJson.c_str(), sensorDataSize);
+        memcpy(buffer + currentPos, sensorJson.c_str(), sensorDataSize);
         currentPos += sensorDataSize;
     }
 
     // Add camera frame if available
-    if (needCameraFrame && fb)
+    if (fb && cameraDataSize > 0)
     {
-        memcpy(buffer + currentPos, fb->buf, fb->len);
-        last_ws_frame = current_time / 1000;
+        // Use zero-copy approach when possible
+        if (fb->buf)
+        {
+            memcpy(buffer + currentPos, fb->buf, fb->len);
+            last_ws_frame = current_time / 1000;
 
 #ifdef DEBUG_CAMERA_STREAM
-        int64_t frame_time = 0;
-        if (last_debug_frame > 0)
-        {
-            frame_time = (current_time - last_debug_frame) / 1000;
-        }
-        last_debug_frame = current_time;
+            int64_t frame_time = 0;
+            if (last_debug_frame > 0)
+            {
+                frame_time = (current_time - last_debug_frame) / 1000;
+            }
+            last_debug_frame = current_time;
 
-        frame_count++;
-        float fps = (frame_time > 0) ? (1000.0f / (float)frame_time) : 0.0f;
+            frame_count++;
+            float fps = (frame_time > 0) ? (1000.0f / (float)frame_time) : 0.0f;
 
-        Serial.printf("WS_CAM #%d: %ux%u %uB %lldms [%.1ffps]\r\n",
-                      frame_count,
-                      fb->width, fb->height,
-                      fb->len,
-                      frame_time,
-                      fps);
+            Serial.printf("WS_CAM #%d: %ux%u %uB %lldms [%.1ffps]\r\n",
+                          frame_count,
+                          fb->width, fb->height,
+                          fb->len,
+                          frame_time,
+                          fps);
 #endif
+        }
     }
 
     // Send the combined binary message
     webSocket.broadcastBIN(buffer, totalSize);
 
     // Free resources
-    free(buffer);
+    if (!usingPreallocated)
+    {
+        free(buffer);
+    }
+
     if (fb)
+    {
         esp_camera_fb_return(fb);
+    }
 }
 
 void readDataFromRoomba()
@@ -1153,6 +1186,20 @@ void setup()
         Serial.println("PSRAM : Disabled");
     }
 
+    if (psramFound())
+    {
+        // Allocate large buffer from PSRAM
+        preAllocatedBuffer = (uint8_t *)ps_malloc(MAX_BINARY_BUFFER_SIZE);
+        if (preAllocatedBuffer)
+        {
+            Serial.printf("Pre-allocated %d KB buffer in PSRAM\n", MAX_BINARY_BUFFER_SIZE / 1024);
+        }
+        else
+        {
+            Serial.println("Failed to pre-allocate PSRAM buffer!");
+        }
+    }
+
     setupSerial(baudRate);
 
     camera_config_t config;
@@ -1298,7 +1345,7 @@ void setup()
 
     // Watchdog timer setup
     esp_task_wdt_init(30, true); // Enable 30 seconds timeout with panic
-    esp_task_wdt_add(NULL); // Add current thread to watchdog
+    esp_task_wdt_add(NULL);      // Add current thread to watchdog
 }
 
 void loop()
